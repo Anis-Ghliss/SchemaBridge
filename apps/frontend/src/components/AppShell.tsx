@@ -1,10 +1,11 @@
-import { Activity, GitBranch, Layers3, Radio, Send, Sparkles } from "lucide-react";
+import { Activity, GitBranch, Layers3, PlayCircle, Radio, Send, Sparkles } from "lucide-react";
 import { useEffect } from "react";
 import { useAppStore, type AppView } from "../store";
 import { DesignView } from "../pages/DesignView";
 import { DeployView } from "../pages/DeployView";
 import { TryView } from "../pages/TryView";
 import { LiveView } from "../pages/LiveView";
+import { OnboardingWizard } from "./OnboardingWizard";
 import { cn } from "../lib/utils";
 
 interface NavItem {
@@ -22,7 +23,7 @@ const NAV: readonly NavItem[] = [
 ];
 
 export function AppShell() {
-  const { view, setView, status, load, schemas, mappings, bindings } = useAppStore();
+  const { view, setView, status, load, schemas, mappings, bindings, wizardOpen, restartOnboarding } = useAppStore();
 
   useEffect(() => {
     void load().catch(() => undefined);
@@ -65,12 +66,19 @@ export function AppShell() {
           })}
         </nav>
 
-        <div className="border-t border-border p-4 text-[11px] text-slate-500">
+        <div className="space-y-3 border-t border-border p-4 text-[11px] text-slate-500">
           <div className="grid grid-cols-3 gap-2 text-center">
             <Counter label="Schemas" value={schemas.length} />
             <Counter label="Mappings" value={mappings.length} />
             <Counter label="Bindings" value={bindings.length} />
           </div>
+          <button
+            type="button"
+            onClick={restartOnboarding}
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-white px-2 py-1.5 text-[11px] text-slate-600 hover:bg-muted"
+          >
+            <PlayCircle className="h-3 w-3" /> Run setup tour
+          </button>
         </div>
       </aside>
 
@@ -96,6 +104,8 @@ export function AppShell() {
           {view === "live" && <LiveView />}
         </main>
       </div>
+
+      {wizardOpen && <OnboardingWizard />}
     </div>
   );
 }

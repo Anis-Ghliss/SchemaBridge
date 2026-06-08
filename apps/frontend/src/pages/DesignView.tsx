@@ -1,4 +1,4 @@
-import { GitBranch, Play, RotateCcw, Save, Sparkles } from "lucide-react";
+import { GitBranch, Play, RotateCcw, Save } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { JsonValue } from "@schemabridge/shared-types";
 import { parseJsonText, parseSchema } from "@schemabridge/schema-parser";
@@ -12,14 +12,12 @@ import { SchemaTree } from "../components/SchemaTree";
 import { MappingCanvas } from "../components/MappingCanvas";
 
 export function DesignView() {
-  const { schemas, mappings, sourceSchema, targetSchema, activeMapping, rules, output, setRules, saveSchemaPair, saveMapping, saveVersion, restoreVersion, runTransform, loadSample } = useAppStore();
+  const { sourceSchema, targetSchema, activeMapping, rules, output, setRules, saveSchemaPair, saveMapping, saveVersion, restoreVersion, runTransform } = useAppStore();
   const [sourceDraft, setSourceDraft] = useState<{ readonly name: string; readonly content: JsonValue }>(() => ({ name: "Customer API v1", content: sampleSource }));
   const [targetDraft, setTargetDraft] = useState<{ readonly name: string; readonly content: JsonValue }>(() => ({ name: "Customer API v2", content: sampleTarget }));
   const [payload, setPayload] = useState(() => JSON.stringify(sampleSource, null, 2));
   const [selected, setSelected] = useState<string>();
   const [mappingName, setMappingName] = useState("Customer v1 to v2");
-
-  const isFirstRun = schemas.length === 0 && mappings.length === 0;
 
   const sourceFields = sourceSchema?.fields ?? parseSchema(sourceDraft.content).fields;
   const targetFields = targetSchema?.fields ?? parseSchema(targetDraft.content).fields;
@@ -32,25 +30,6 @@ export function DesignView() {
 
   return (
     <div className="space-y-5">
-      {isFirstRun && (
-        <Card className="overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-white to-amber-50">
-          <div className="flex flex-col items-start gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-                <Sparkles className="h-3 w-3" /> Welcome
-              </div>
-              <h2 className="text-lg font-semibold">Build your first schema bridge</h2>
-              <p className="mt-1 max-w-xl text-sm text-slate-600">
-                Paste two JSON examples below, drag connections between fields, then jump to <strong>Deploy</strong> to wire the mapping into a live route. Or load the sample to skip ahead.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={() => void loadSample()}><Sparkles className="h-4 w-4" /> Load sample</Button>
-            </div>
-          </div>
-        </Card>
-      )}
-
       <section className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">

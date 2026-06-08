@@ -41,4 +41,9 @@ await shot("live", async () => {
   await sleep(2500);
 });
 
+await shot("onboarding", async () => {
+  await page.click("text=Run setup tour");
+  await sleep(500);
+});
+
 await browser.close();

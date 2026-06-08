@@ -5,6 +5,10 @@
 
 **Programmable mapping middleware for JSON-over-HTTP workflows.** Design payload transformations in a visual editor, then deploy them as runtime bindings — traffic hitting the bridge is reshaped in-flight and forwarded to the right upstream. Drop it anywhere JSON shapes don't agree.
 
+![Onboarding — Service A still sends, Service B changed, the bridge translates](docs/screenshots/onboarding.png)
+
+First-run users get a guided 5-step setup: capture the old payload (what Service A still sends), capture the new payload (what Service B now expects), connect the fields (suggestions pre-filled by name similarity), then deploy the binding. After that, the **Live** tab tails every request the proxy handles.
+
 ![Design view — mapping canvas](docs/screenshots/design.png)
 
 ## Why
