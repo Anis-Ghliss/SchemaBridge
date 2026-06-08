@@ -5,11 +5,12 @@
 
 **Programmable mapping middleware for JSON-over-HTTP workflows.** Design payload transformations in a visual editor, then deploy them as runtime bindings — traffic hitting the bridge is reshaped in-flight and forwarded to the right upstream. Drop it anywhere JSON shapes don't agree.
 
-![Onboarding — Service A still sends, Service B changed, the bridge translates](docs/screenshots/onboarding.png)
+![Define step — paste source + target payloads](docs/screenshots/define.png)
 
-First-run users get a guided 5-step setup: capture the old payload (what Service A still sends), capture the new payload (what Service B now expects), connect the fields (suggestions pre-filled by name similarity), then deploy the binding. After that, the **Live** tab tails every request the proxy handles.
+The whole product is one short stepper: **① Define** payload shapes, **② Connect** fields, **③ Deploy** a runtime binding, **④ Observe** traffic flowing through. Each step shows only the controls it needs — no dashboard to scan, no settings hidden in side panels.
 
-![Design view — mapping canvas](docs/screenshots/design.png)
+![Connect step — mapping canvas with name suggestions](docs/screenshots/connect.png)
+![Observe step — live traffic tail with binding attribution](docs/screenshots/observe-live.png)
 
 ## Why
 
@@ -95,11 +96,7 @@ The bridge reshapes the body into the v2 layout (including ISO-date normalizatio
 
 | Deploy | Try it |
 | --- | --- |
-| ![Bindings list](docs/screenshots/deploy.png) | ![Proxy probe with curl helper](docs/screenshots/try.png) |
-
-![Live traffic tail](docs/screenshots/live.png)
-
-The **Live** tab tails every request the proxy handles: method, path, status, duration, the binding it matched, and the transformed request/response bodies are one click away. Unmatched routes show up too — handy for catching missing bindings.
+| ![Bindings list](docs/screenshots/deploy.png) | ![Proxy probe with curl helper](docs/screenshots/observe-try.png) |
 
 ## How it works
 

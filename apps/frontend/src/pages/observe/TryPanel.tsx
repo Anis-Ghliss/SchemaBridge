@@ -1,16 +1,15 @@
-import { Copy, Plug, Send } from "lucide-react";
+import { Copy, Send } from "lucide-react";
 import { useMemo, useState } from "react";
-import { PROXY_URL, probeProxy, type ProxyProbeResult } from "../lib/api";
-import { useAppStore } from "../store";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import { JsonEditor } from "../components/JsonEditor";
-import { EmptyState } from "../components/EmptyState";
+import { PROXY_URL, probeProxy, type ProxyProbeResult } from "../../lib/api";
+import { useAppStore } from "../../store";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
+import { JsonEditor } from "../../components/JsonEditor";
 
 const DEFAULT_PAYLOAD = JSON.stringify({ customerName: "Ada", customerEmail: "ada@example.com" }, null, 2);
 
-export function TryView() {
-  const { bindings, setView } = useAppStore();
+export function TryPanel() {
+  const { bindings } = useAppStore();
   const [selectedId, setSelectedId] = useState<string>(bindings[0]?.id ?? "");
   const [payload, setPayload] = useState(DEFAULT_PAYLOAD);
   const [result, setResult] = useState<ProxyProbeResult | null>(null);
@@ -29,17 +28,6 @@ export function TryView() {
     if (hasBody) lines.push(`  -d '${payload.replace(/\n\s*/g, " ")}'`);
     return lines.join(" \\\n");
   }, [selected, payload]);
-
-  if (bindings.length === 0) {
-    return (
-      <EmptyState
-        icon={Plug}
-        title="No bindings to try"
-        description="Create a binding in the Deploy view, then come back here to send live traffic through the bridge."
-        action={<Button onClick={() => setView("deploy")}>Go to Deploy</Button>}
-      />
-    );
-  }
 
   async function run() {
     if (!selected) return;
@@ -67,7 +55,7 @@ export function TryView() {
     <div className="grid gap-5 lg:grid-cols-2">
       <Card className="p-5">
         <div className="mb-3">
-          <h2 className="text-sm font-semibold">Request</h2>
+          <h3 className="text-sm font-semibold">Request</h3>
           <p className="text-xs text-slate-500">Sent through the proxy port at <code className="rounded bg-muted px-1 py-0.5">{PROXY_URL}</code>.</p>
         </div>
         <div className="space-y-3">
@@ -100,7 +88,7 @@ export function TryView() {
 
       <Card className="p-5">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Response</h2>
+          <h3 className="text-sm font-semibold">Response</h3>
           {result && (
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${result.status >= 200 && result.status < 300 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
               HTTP {result.status}

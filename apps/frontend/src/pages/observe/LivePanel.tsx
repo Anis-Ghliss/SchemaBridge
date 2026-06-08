@@ -1,12 +1,12 @@
 import { Activity, Pause, Play, Radio } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProxyRequestLog } from "@schemabridge/shared-types";
-import { listProxyRequests } from "../lib/api";
-import { useAppStore } from "../store";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import { EmptyState } from "../components/EmptyState";
-import { cn } from "../lib/utils";
+import { listProxyRequests } from "../../lib/api";
+import { useAppStore } from "../../store";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
+import { EmptyState } from "../../components/EmptyState";
+import { cn } from "../../lib/utils";
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_ROWS = 100;
@@ -19,8 +19,8 @@ const METHOD_COLOR: Record<string, string> = {
   DELETE: "bg-rose-50 text-rose-700"
 };
 
-export function LiveView() {
-  const { bindings, setView } = useAppStore();
+export function LivePanel() {
+  const { bindings } = useAppStore();
   const [logs, setLogs] = useState<readonly ProxyRequestLog[]>([]);
   const [paused, setPaused] = useState(false);
   const [expanded, setExpanded] = useState<string | undefined>();
@@ -60,19 +60,8 @@ export function LiveView() {
 
   const bindingNameById = useMemo(() => new Map(bindings.map((binding) => [binding.id, binding.name])), [bindings]);
 
-  if (bindings.length === 0 && logs.length === 0) {
-    return (
-      <EmptyState
-        icon={Radio}
-        title="No traffic yet"
-        description="Create a binding and send a request through the proxy to see live traffic here."
-        action={<Button onClick={() => setView("deploy")}>Go to Deploy</Button>}
-      />
-    );
-  }
-
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-slate-600">
           <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium", paused ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700")}>
@@ -92,7 +81,7 @@ export function LiveView() {
         <EmptyState
           icon={Radio}
           title="Waiting for traffic"
-          description="Send a request through the proxy and it will appear here within a couple of seconds."
+          description="Send a request through the proxy (use the Try it tab) and it will appear here within a couple of seconds."
         />
       ) : (
         <Card className="overflow-hidden">

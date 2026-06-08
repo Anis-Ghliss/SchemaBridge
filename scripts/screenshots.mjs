@@ -24,26 +24,28 @@ async function shot(name, prep) {
   console.log(`captured ${name}`);
 }
 
-await shot("design", async () => {
-  // Design is the default view.
+await shot("define", async () => {
+  // Define is step 1 — default view.
+});
+
+await shot("connect", async () => {
+  await page.click("button:has-text('Connect')");
+  await sleep(400);
 });
 
 await shot("deploy", async () => {
-  await page.click("text=Deploy");
+  await page.click("button:has-text('Deploy')");
+  await sleep(400);
 });
 
-await shot("try", async () => {
-  await page.click("text=Try it");
+await shot("observe-try", async () => {
+  await page.click("button:has-text('Observe')");
+  await sleep(400);
 });
 
-await shot("live", async () => {
-  await page.click("text=Live");
+await shot("observe-live", async () => {
+  await page.click("button:has-text('Live traffic')");
   await sleep(2500);
-});
-
-await shot("onboarding", async () => {
-  await page.click("text=Run setup tour");
-  await sleep(500);
 });
 
 await browser.close();

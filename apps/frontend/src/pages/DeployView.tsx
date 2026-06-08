@@ -28,8 +28,8 @@ export function DeployView() {
       <EmptyState
         icon={GitBranch}
         title="You need a mapping first"
-        description="Bindings tell the proxy which mapping to apply on which route. Create a mapping in the Design view, then come back here."
-        action={<Button onClick={() => setView("design")}>Go to Design</Button>}
+        description="Bindings tell the proxy which mapping to apply on which route. Save a mapping in the Connect step, then come back here."
+        action={<Button onClick={() => setView("connect")}>Go to Connect</Button>}
       />
     );
   }

@@ -15,20 +15,14 @@ import {
 } from "./lib/api";
 import { sampleSource, sampleTarget } from "./lib/samples";
 
-export type AppView = "design" | "deploy" | "try" | "live";
+export type AppView = "define" | "connect" | "deploy" | "observe";
 
-const ONBOARDING_DISMISSED_KEY = "schemabridge:onboarding-dismissed";
-
-function readOnboardingDismissed(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true";
-}
-
-function writeOnboardingDismissed(value: boolean): void {
-  if (typeof window === "undefined") return;
-  if (value) window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-  else window.localStorage.removeItem(ONBOARDING_DISMISSED_KEY);
-}
+export const APP_STEPS: readonly { readonly id: AppView; readonly label: string; readonly hint: string }[] = [
+  { id: "define", label: "Define", hint: "Capture both shapes" },
+  { id: "connect", label: "Connect", hint: "Map source fields to target" },
+  { id: "deploy", label: "Deploy", hint: "Wire up a runtime route" },
+  { id: "observe", label: "Observe", hint: "Send and watch traffic" }
+];
 
 interface AppState {
   readonly view: AppView;
@@ -42,11 +36,7 @@ interface AppState {
   readonly status: string;
   readonly output?: JsonValue;
   readonly error?: string;
-  readonly onboardingDismissed: boolean;
-  readonly wizardOpen: boolean;
   readonly setView: (view: AppView) => void;
-  readonly dismissOnboarding: () => void;
-  readonly restartOnboarding: () => void;
   readonly load: () => Promise<void>;
   readonly saveSchemaPair: (source: { readonly name: string; readonly content: JsonValue }, target: { readonly name: string; readonly content: JsonValue }) => Promise<void>;
   readonly setRules: (rules: readonly MappingRule[]) => void;
@@ -61,24 +51,14 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  view: "design",
+  view: "define",
   schemas: [],
   mappings: [],
   bindings: [],
   rules: [],
   status: "Ready",
-  onboardingDismissed: readOnboardingDismissed(),
-  wizardOpen: false,
   setView(view) {
     set({ view });
-  },
-  dismissOnboarding() {
-    writeOnboardingDismissed(true);
-    set({ onboardingDismissed: true, wizardOpen: false });
-  },
-  restartOnboarding() {
-    writeOnboardingDismissed(false);
-    set({ onboardingDismissed: false, wizardOpen: true });
   },
   async load() {
     const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
@@ -86,8 +66,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const activeMapping = (preferredMappingId ? mappings.find((mapping) => mapping.id === preferredMappingId) : undefined) ?? mappings[0];
     const sourceSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.sourceSchemaId) : undefined;
     const targetSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.targetSchemaId) : undefined;
-    const isFreshInstall = schemas.length === 0 && mappings.length === 0 && bindings.length === 0;
-    const { onboardingDismissed, wizardOpen } = get();
     set({
       schemas,
       mappings,
@@ -95,8 +73,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       activeMapping,
       sourceSchema,
       targetSchema,
-      rules: activeMapping?.versions.find((version) => version.version === activeMapping.currentVersion)?.rules ?? [],
-      wizardOpen: wizardOpen || (isFreshInstall && !onboardingDismissed)
+      rules: activeMapping?.versions.find((version) => version.version === activeMapping.currentVersion)?.rules ?? []
     });
   },
   async saveSchemaPair(source, target) {
