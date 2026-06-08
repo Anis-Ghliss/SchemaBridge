@@ -55,5 +55,14 @@
       "forwardHeaders": ["content-type", "accept"],
       "enabled": true
     }
+  ],
+  "apps": [
+    {
+      "name": "demo-client",
+      "description": "Pre-seeded client for the demo profile — used when PROXY_REQUIRE_AUTH=true",
+      "key": "sb_demoKey_change_me_in_real_deployments_xyz",
+      "scope": "all",
+      "enabled": true
+    }
   ]
 }

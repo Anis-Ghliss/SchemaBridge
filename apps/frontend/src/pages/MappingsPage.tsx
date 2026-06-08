@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, GitBranch, Plus, RotateCcw, Save, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, GitBranch, Plus, RotateCcw, Save, Search, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { parseSchema } from "@schemabridge/schema-parser";
 import { useAppStore } from "../store";
@@ -166,7 +166,7 @@ function NewMapping({ onCancel }: { readonly onCancel: () => void }) {
 }
 
 function MappingDetail({ mappingId }: { readonly mappingId: string }) {
-  const { mappings, schemas, bindings, activeMapping, rules, selectMapping, selectBinding, setView, setRules, setActiveMapping, saveVersion, restoreVersion } = useAppStore();
+  const { mappings, schemas, bindings, activeMapping, rules, selectMapping, selectBinding, setView, setRules, setActiveMapping, saveVersion, restoreVersion, removeMapping } = useAppStore();
   const mapping = mappings.find((item) => item.id === mappingId);
   const [selected, setSelected] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -200,6 +200,20 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
     }
   }
 
+  async function remove() {
+    if (!mapping) return;
+    if (dependents.length > 0) {
+      window.alert(`Can't delete — used by ${dependents.length} binding(s). Remove or repoint them first.`);
+      return;
+    }
+    if (!window.confirm(`Delete mapping "${mapping.name}"?`)) return;
+    try {
+      await removeMapping(mapping.id);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to delete.");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <button type="button" onClick={() => selectMapping(undefined)} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
@@ -228,6 +242,9 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
           </Button>
           <Button size="sm" onClick={() => void save()} disabled={!isDirty || saving}>
             <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save mapping"}
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => void remove()} disabled={dependents.length > 0} title={dependents.length > 0 ? `Used by ${dependents.length} binding(s)` : undefined}>
+            <Trash2 className="h-3.5 w-3.5" /> Delete
           </Button>
         </div>
       </div>

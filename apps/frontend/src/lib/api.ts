@@ -12,7 +12,8 @@ import type {
   TransformRequest,
   TransformResult,
   UpdateProxyAppRequest,
-  UpdateProxyBindingRequest
+  UpdateProxyBindingRequest,
+  UpdateSchemaRequest
 } from "@schemabridge/shared-types";
 
 const API_URL = resolveApiUrl();
@@ -38,6 +39,18 @@ export async function createSchema(input: CreateSchemaRequest): Promise<SchemaDo
 
 export async function listSchemas(): Promise<readonly SchemaDocument[]> {
   return request("/schemas");
+}
+
+export async function updateSchema(id: string, input: UpdateSchemaRequest): Promise<SchemaDocument> {
+  return request(`/schemas/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function deleteSchema(id: string): Promise<void> {
+  await request<void>(`/schemas/${id}`, { method: "DELETE" });
+}
+
+export async function deleteMapping(id: string): Promise<void> {
+  await request<void>(`/mappings/${id}`, { method: "DELETE" });
 }
 
 export async function createMapping(input: CreateMappingRequest): Promise<MappingDocument> {
@@ -73,8 +86,7 @@ export async function updateBinding(id: string, input: UpdateProxyBindingRequest
 }
 
 export async function deleteBinding(id: string): Promise<void> {
-  const response = await fetch(`${API_URL}/bindings/${id}`, { method: "DELETE" });
-  if (!response.ok) throw new Error(await response.text());
+  await request<void>(`/bindings/${id}`, { method: "DELETE" });
 }
 
 export async function listProxyApps(): Promise<readonly ProxyApp[]> {
@@ -94,8 +106,7 @@ export async function rotateProxyAppKey(id: string): Promise<ProxyAppWithKey> {
 }
 
 export async function deleteProxyApp(id: string): Promise<void> {
-  const response = await fetch(`${API_URL}/apps/${id}`, { method: "DELETE" });
-  if (!response.ok) throw new Error(await response.text());
+  await request<void>(`/apps/${id}`, { method: "DELETE" });
 }
 
 export async function listProxyRequests(options: { readonly limit?: number; readonly since?: string } = {}): Promise<readonly ProxyRequestLog[]> {
@@ -144,11 +155,31 @@ function concretizePath(pattern: string): string {
   return pattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
 }
 
+const ADMIN_TOKEN_STORAGE = "schemabridge:admin-token";
+
+export function getAdminToken(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.localStorage.getItem(ADMIN_TOKEN_STORAGE) ?? undefined;
+}
+
+export function setAdminToken(token: string | undefined): void {
+  if (typeof window === "undefined") return;
+  if (token && token.length > 0) window.localStorage.setItem(ADMIN_TOKEN_STORAGE, token);
+  else window.localStorage.removeItem(ADMIN_TOKEN_STORAGE);
+}
+
+let onUnauthorized: (() => void) | undefined;
+export function onAdminUnauthorized(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) }
-  });
+  const headers: Record<string, string> = { "content-type": "application/json", ...(init?.headers as Record<string, string> | undefined ?? {}) };
+  const token = getAdminToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (response.status === 401 && onUnauthorized) onUnauthorized();
+  if (response.status === 204) return undefined as unknown as T;
   const data = (await response.json()) as T;
   if (!response.ok) {
     throw new Error(JSON.stringify(data));

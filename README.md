@@ -71,8 +71,9 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 | `PORT` | `4000` | Admin API + GUI port |
 | `PROXY_PORT` | `8080` | Runtime proxy port |
 | `CORS_ORIGIN` | `*` | CORS allow-list for the admin API |
-| `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings to load on first boot |
+| `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings/apps to load on first boot |
 | `PROXY_REQUIRE_AUTH` | `false` | When `true`, the proxy rejects requests without a valid `Authorization: Bearer <key>` belonging to a registered app |
+| `ADMIN_API_KEY` | unset | When set, the admin API/GUI require `Authorization: Bearer <key>`. Leave unset for local dev; set it in any deployed environment. |
 
 ### Authorizing services
 

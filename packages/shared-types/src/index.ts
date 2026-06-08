@@ -76,6 +76,12 @@ export const CreateSchemaRequestSchema = z.object({
 });
 export type CreateSchemaRequest = z.infer<typeof CreateSchemaRequestSchema>;
 
+export const UpdateSchemaRequestSchema = z.object({
+  name: z.string().min(1).optional(),
+  content: JsonValueSchema.optional()
+});
+export type UpdateSchemaRequest = z.infer<typeof UpdateSchemaRequestSchema>;
+
 export const CreateMappingRequestSchema = z.object({
   name: z.string().min(1),
   sourceSchemaId: z.string().uuid(),

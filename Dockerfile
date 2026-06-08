@@ -36,4 +36,4 @@ LABEL org.opencontainers.image.title="SchemaBridge"
 LABEL org.opencontainers.image.description="Programmable JSON mapping middleware: admin + GUI on :4000, runtime proxy on :8080"
 LABEL org.opencontainers.image.source="https://github.com/Anis-Ghliss/SchemaBridge"
 LABEL org.opencontainers.image.licenses="MIT"
-CMD ["sh", "-c", "npm run prisma:deploy && node dist/server.js"]
+CMD ["sh", "-c", "npm run prisma:deploy && exec node dist/server.js"]

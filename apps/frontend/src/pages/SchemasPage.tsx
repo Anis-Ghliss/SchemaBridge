@@ -1,4 +1,4 @@
-import { ArrowLeft, Layers3, Plus, Search, Upload } from "lucide-react";
+import { ArrowLeft, Layers3, Pencil, Plus, Save, Search, Trash2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { MappingDocument, SchemaDocument } from "@schemabridge/shared-types";
 import { parseJsonText } from "@schemabridge/schema-parser";
@@ -159,11 +159,60 @@ function NewSchema({ onDone }: { readonly onDone: () => void }) {
 }
 
 function SchemaDetail({ schemaId }: { readonly schemaId: string }) {
-  const { schemas, mappings, selectSchema, setView, selectMapping } = useAppStore();
+  const { schemas, mappings, selectSchema, setView, selectMapping, editSchema, removeSchema } = useAppStore();
   const schema = schemas.find((item) => item.id === schemaId);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(schema?.name ?? "");
+  const [editText, setEditText] = useState(() => (schema ? JSON.stringify(schema.content, null, 2) : "{}"));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
   if (!schema) return null;
 
   const dependents = mappings.filter((mapping) => mapping.sourceSchemaId === schemaId || mapping.targetSchemaId === schemaId);
+  const dependentCount = dependents.length;
+
+  function startEdit() {
+    setEditName(schema?.name ?? "");
+    setEditText(JSON.stringify(schema?.content, null, 2));
+    setError(undefined);
+    setEditing(true);
+  }
+
+  async function save() {
+    if (!schema) return;
+    setError(undefined);
+    let nextContent;
+    try {
+      nextContent = JSON.parse(editText) as unknown;
+    } catch {
+      setError("Invalid JSON.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await editSchema(schema.id, { name: editName.trim(), content: nextContent as never });
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!schema) return;
+    if (dependentCount > 0) {
+      window.alert(`Can't delete — used by ${dependentCount} mapping(s). Remove or repoint them first.`);
+      return;
+    }
+    if (!window.confirm(`Delete schema "${schema.name}"?`)) return;
+    try {
+      await removeSchema(schema.id);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to delete.");
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -171,18 +220,41 @@ function SchemaDetail({ schemaId }: { readonly schemaId: string }) {
         <ArrowLeft className="h-3 w-3" /> Back to schemas
       </button>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">{schema.name}</h2>
           <p className="text-xs text-slate-500">Created {new Date(schema.createdAt).toLocaleString()}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {!editing && <Button variant="secondary" size="sm" onClick={startEdit}><Pencil className="h-3.5 w-3.5" /> Edit</Button>}
+          <Button variant="danger" size="sm" onClick={() => void remove()} disabled={dependentCount > 0} title={dependentCount > 0 ? `Used by ${dependentCount} mapping(s)` : undefined}>
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </Button>
         </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         <Card className="p-5">
-          <h3 className="mb-3 text-sm font-semibold">Example payload</h3>
-          <JsonEditor value={JSON.stringify(schema.content, null, 2)} onChange={() => undefined} label="Read-only" minHeight="280px" maxHeight="500px" />
-          <p className="mt-2 text-[11px] text-slate-500">Schema content is read-only here for now. Replace via Quick start or by creating a new schema.</p>
+          <h3 className="mb-3 text-sm font-semibold">{editing ? "Edit schema" : "Example payload"}</h3>
+          {editing ? (
+            <div className="space-y-3">
+              <label className="flex flex-col gap-1.5 text-xs">
+                <span className="font-medium text-slate-600">Name</span>
+                <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
+              </label>
+              <JsonEditor value={editText} onChange={setEditText} label="Payload" minHeight="280px" maxHeight="500px" />
+              {dependentCount > 0 && (
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-[11px] text-amber-700">{dependentCount} mapping{dependentCount === 1 ? "" : "s"} reference this schema. Changing the shape may invalidate existing rules — review them after saving.</p>
+              )}
+              {error && <p className="text-xs text-rose-600">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}><X className="h-3.5 w-3.5" /> Cancel</Button>
+                <Button size="sm" onClick={() => void save()} disabled={saving}><Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save changes"}</Button>
+              </div>
+            </div>
+          ) : (
+            <JsonEditor value={JSON.stringify(schema.content, null, 2)} onChange={() => undefined} label="Read-only" minHeight="280px" maxHeight="500px" />
+          )}
         </Card>
         <div className="space-y-4">
           <Card className="p-4">

@@ -5,6 +5,7 @@ import type {
   CreateProxyAppRequest,
   CreateProxyBindingRequest,
   CreateSchemaRequest,
+  JsonValue,
   MappingDocument,
   MappingRule,
   ProxyApp,
@@ -68,6 +69,30 @@ export class SchemaBridgeRepository {
     };
   }
 
+  public async deleteSchema(id: string): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
+    const existing = await this.prisma.schemaDocument.findUnique({ where: { id } });
+    if (!existing) return { ok: false, conflict: "not-found" };
+    const referencingMapping = await this.prisma.mapping.findFirst({
+      where: { OR: [{ sourceSchemaId: id }, { targetSchemaId: id }] },
+      select: { id: true, name: true }
+    });
+    if (referencingMapping) return { ok: false, conflict: `Used by mapping "${referencingMapping.name}"` };
+    await this.prisma.schemaDocument.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  public async deleteMapping(id: string): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
+    const existing = await this.prisma.mapping.findUnique({ where: { id } });
+    if (!existing) return { ok: false, conflict: "not-found" };
+    const referencingBinding = await this.prisma.proxyBinding.findFirst({
+      where: { OR: [{ mappingId: id }, { responseMappingId: id }] },
+      select: { id: true, name: true }
+    });
+    if (referencingBinding) return { ok: false, conflict: `Used by binding "${referencingBinding.name}"` };
+    await this.prisma.mapping.delete({ where: { id } });
+    return { ok: true };
+  }
+
   public async listSchemas(): Promise<readonly SchemaDocument[]> {
     const records = await this.prisma.schemaDocument.findMany({ orderBy: { createdAt: "desc" } });
     return records.map((record) => ({
@@ -77,6 +102,28 @@ export class SchemaBridgeRepository {
       fields: record.fields as unknown as SchemaDocument["fields"],
       createdAt: record.createdAt.toISOString()
     }));
+  }
+
+  public async updateSchema(id: string, input: { readonly name?: string; readonly content?: JsonValue }): Promise<SchemaDocument | null> {
+    const existing = await this.prisma.schemaDocument.findUnique({ where: { id } });
+    if (!existing) return null;
+    const nextContent = input.content === undefined ? (existing.content as JsonValue) : input.content;
+    const nextFields = input.content === undefined ? (existing.fields as unknown as SchemaDocument["fields"]) : parseSchema(input.content).fields;
+    const record = await this.prisma.schemaDocument.update({
+      where: { id },
+      data: {
+        name: input.name ?? undefined,
+        content: input.content === undefined ? undefined : toPrismaJson(input.content),
+        fields: input.content === undefined ? undefined : (nextFields as unknown as Prisma.InputJsonValue)
+      }
+    });
+    return {
+      id: record.id,
+      name: record.name,
+      content: nextContent,
+      fields: nextFields as SchemaDocument["fields"],
+      createdAt: record.createdAt.toISOString()
+    };
   }
 
   public async getSchema(id: string): Promise<SchemaDocument | null> {

@@ -1,5 +1,5 @@
 import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck, Sparkles } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore, type ResourceView } from "../store";
 import { SchemasPage } from "../pages/SchemasPage";
 import { MappingsPage } from "../pages/MappingsPage";
@@ -8,6 +8,8 @@ import { AppsPage } from "../pages/AppsPage";
 import { LivePage } from "../pages/LivePage";
 import { QuickStartModal } from "./QuickStartModal";
 import { RevealKeyDialog } from "./RevealKeyDialog";
+import { AdminLoginDialog } from "./AdminLoginDialog";
+import { onAdminUnauthorized } from "../lib/api";
 import { cn } from "../lib/utils";
 
 interface NavItem {
@@ -26,8 +28,10 @@ const NAV: readonly NavItem[] = [
 
 export function ResourceShell() {
   const { view, setView, status, load, schemas, mappings, bindings, apps, quickStartOpen, openQuickStart, revealedKey } = useAppStore();
+  const [loginRequired, setLoginRequired] = useState(false);
 
   useEffect(() => {
+    onAdminUnauthorized(() => setLoginRequired(true));
     void load().catch(() => undefined);
   }, [load]);
 
@@ -108,6 +112,7 @@ export function ResourceShell() {
 
       {quickStartOpen && <QuickStartModal />}
       {revealedKey && <RevealKeyDialog />}
+      {loginRequired && <AdminLoginDialog onAuthenticated={() => { setLoginRequired(false); void load(); }} />}
     </div>
   );
 }

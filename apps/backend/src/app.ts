@@ -5,6 +5,7 @@ import { transformPayload, validateMappingRules } from "@schemabridge/transforma
 import { existsSync } from "node:fs";
 import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
+import { parseBearerToken } from "./services/authService.js";
 import {
   CreateMappingRequestSchema,
   CreateProxyAppRequestSchema,
@@ -13,7 +14,8 @@ import {
   RestoreMappingVersionRequestSchema,
   TransformRequestSchema,
   UpdateProxyAppRequestSchema,
-  UpdateProxyBindingRequestSchema
+  UpdateProxyBindingRequestSchema,
+  UpdateSchemaRequestSchema
 } from "@schemabridge/shared-types";
 import { SchemaBridgeRepository } from "./services/repository.js";
 
@@ -21,6 +23,7 @@ export interface AppOptions {
   readonly prisma: PrismaClient;
   readonly corsOrigin?: string;
   readonly frontendDist?: string;
+  readonly adminApiKey?: string;
   readonly onBindingsChanged?: () => void | Promise<void>;
 }
 
@@ -29,6 +32,17 @@ export function createApp(options: AppOptions): FastifyInstance {
   const repository = new SchemaBridgeRepository(options.prisma);
 
   app.register(cors, { origin: options.corsOrigin ?? true });
+
+  if (options.adminApiKey) {
+    const expected = options.adminApiKey;
+    app.addHook("onRequest", async (request, reply) => {
+      if (isPublicRoute(request.method, request.url)) return;
+      const token = parseBearerToken(request.headers["authorization"]);
+      if (!token || token !== expected) {
+        reply.code(401).send({ error: "missing or invalid admin token" });
+      }
+    });
+  }
 
   registerAdminRoutes(app, repository, options.onBindingsChanged);
 
@@ -63,6 +77,26 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     return schema ?? reply.code(404).send({ error: "Schema not found" });
   });
 
+  app.patch("/schemas/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const body = parseBody(UpdateSchemaRequestSchema, request.body);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    if (!body.success) return reply.code(400).send({ errors: body.error });
+    const schema = await repository.updateSchema(params.data.id, body.data);
+    return schema ?? reply.code(404).send({ error: "Schema not found" });
+  });
+
+  app.delete("/schemas/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const result = await repository.deleteSchema(params.data.id);
+    if (!result.ok) {
+      if (result.conflict === "not-found") return reply.code(404).send({ error: "Schema not found" });
+      return reply.code(409).send({ error: result.conflict });
+    }
+    return reply.code(204).send();
+  });
+
   app.post("/mappings", async (request, reply) => {
     const body = parseBody(CreateMappingRequestSchema, request.body);
     if (!body.success) return reply.code(400).send({ errors: body.error });
@@ -78,6 +112,17 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     if (!params.success) return reply.code(400).send({ errors: params.error });
     const mapping = await repository.getMapping(params.data.id);
     return mapping ?? reply.code(404).send({ error: "Mapping not found" });
+  });
+
+  app.delete("/mappings/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const result = await repository.deleteMapping(params.data.id);
+    if (!result.ok) {
+      if (result.conflict === "not-found") return reply.code(404).send({ error: "Mapping not found" });
+      return reply.code(409).send({ error: result.conflict });
+    }
+    return reply.code(204).send();
   });
 
   app.post("/mappings/:id/versions", async (request, reply) => {
@@ -203,4 +248,12 @@ function parseBody<T>(schema: z.ZodType<T>, value: unknown): { readonly success:
   const result = schema.safeParse(value);
   if (result.success) return { success: true, data: result.data };
   return { success: false, error: result.error.errors.map((issue) => `${issue.path.join(".")}: ${issue.message}`) };
+}
+
+function isPublicRoute(method: string, url: string): boolean {
+  if (method === "OPTIONS") return true;
+  if (url === "/health") return true;
+  // GUI bundle assets: anything without an API path prefix and that looks like a static file or SPA route
+  const apiPrefixes = ["/schemas", "/mappings", "/bindings", "/apps", "/proxy", "/transform"];
+  return !apiPrefixes.some((prefix) => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`));
 }

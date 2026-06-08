@@ -1,4 +1,4 @@
-import type { CreateProxyAppRequest, CreateProxyBindingRequest, JsonValue, MappingDocument, MappingRule, ProxyApp, ProxyAppWithKey, ProxyBinding, SchemaDocument, UpdateProxyAppRequest, UpdateProxyBindingRequest } from "@schemabridge/shared-types";
+import type { CreateProxyAppRequest, CreateProxyBindingRequest, JsonValue, MappingDocument, MappingRule, ProxyApp, ProxyAppWithKey, ProxyBinding, SchemaDocument, UpdateProxyAppRequest, UpdateProxyBindingRequest, UpdateSchemaRequest } from "@schemabridge/shared-types";
 import { create } from "zustand";
 import {
   createBinding,
@@ -7,7 +7,9 @@ import {
   createProxyApp,
   createSchema,
   deleteBinding,
+  deleteMapping,
   deleteProxyApp,
+  deleteSchema,
   listBindings,
   listMappings,
   listProxyApps,
@@ -16,7 +18,8 @@ import {
   rotateProxyAppKey,
   transform,
   updateBinding,
-  updateProxyApp
+  updateProxyApp,
+  updateSchema
 } from "./lib/api";
 import { sampleSource, sampleTarget } from "./lib/samples";
 
@@ -47,6 +50,9 @@ interface AppState {
   readonly closeQuickStart: () => void;
   readonly load: () => Promise<void>;
   readonly createSchema: (input: { readonly name: string; readonly content: JsonValue }) => Promise<SchemaDocument>;
+  readonly editSchema: (id: string, input: UpdateSchemaRequest) => Promise<void>;
+  readonly removeSchema: (id: string) => Promise<void>;
+  readonly removeMapping: (id: string) => Promise<void>;
   readonly setRules: (rules: readonly MappingRule[]) => void;
   readonly setActiveMapping: (id: string) => void;
   readonly createMapping: (input: { readonly name: string; readonly sourceSchemaId: string; readonly targetSchemaId: string; readonly rules: readonly MappingRule[] }) => Promise<MappingDocument>;
@@ -105,6 +111,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const schema = await createSchema(input);
     set({ schemas: [schema, ...get().schemas], status: `Schema ${schema.name} created` });
     return schema;
+  },
+  async editSchema(id, input) {
+    const schema = await updateSchema(id, input);
+    set({ schemas: get().schemas.map((item) => (item.id === id ? schema : item)), status: `Schema ${schema.name} updated` });
+  },
+  async removeSchema(id) {
+    await deleteSchema(id);
+    set({ schemas: get().schemas.filter((item) => item.id !== id), selectedSchemaId: undefined, status: "Schema removed" });
+  },
+  async removeMapping(id) {
+    await deleteMapping(id);
+    set({ mappings: get().mappings.filter((item) => item.id !== id), selectedMappingId: undefined, status: "Mapping removed" });
   },
   setRules(rules) {
     set({ rules });
