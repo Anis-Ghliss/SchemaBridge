@@ -1,0 +1,59 @@
+{
+  "schemas": [
+    {
+      "name": "Customer v1",
+      "content": {
+        "customerId": "c-1001",
+        "customerName": "Ada Lovelace",
+        "customerEmail": "ada@example.com",
+        "customerSignupDate": "2024-04-12"
+      }
+    },
+    {
+      "name": "Customer v2",
+      "content": {
+        "customer": {
+          "id": "c-1001",
+          "name": "Ada Lovelace",
+          "email": "ada@example.com",
+          "signupAt": "2024-04-12T00:00:00.000Z"
+        }
+      }
+    }
+  ],
+  "mappings": [
+    {
+      "name": "Customer v1 to v2",
+      "sourceSchemaName": "Customer v1",
+      "targetSchemaName": "Customer v2",
+      "rules": [
+        { "id": "r1", "sourcePath": "customerId", "targetPath": "customer.id" },
+        { "id": "r2", "sourcePath": "customerName", "targetPath": "customer.name" },
+        { "id": "r3", "sourcePath": "customerEmail", "targetPath": "customer.email" },
+        { "id": "r4", "sourcePath": "customerSignupDate", "targetPath": "customer.signupAt", "transform": "iso-date" }
+      ]
+    },
+    {
+      "name": "Customer v2 to v1 response",
+      "sourceSchemaName": "Customer v2",
+      "targetSchemaName": "Customer v1",
+      "rules": [
+        { "id": "r1", "sourcePath": "customer.id", "targetPath": "customerId" },
+        { "id": "r2", "sourcePath": "customer.name", "targetPath": "customerName" },
+        { "id": "r3", "sourcePath": "customer.email", "targetPath": "customerEmail" }
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "name": "POST /customers → service-b",
+      "method": "POST",
+      "pathPattern": "/customers",
+      "upstreamBaseUrl": "http://service-b:8082",
+      "mappingName": "Customer v1 to v2",
+      "responseMappingName": "Customer v2 to v1 response",
+      "forwardHeaders": ["content-type", "accept"],
+      "enabled": true
+    }
+  ]
+}

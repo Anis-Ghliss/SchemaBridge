@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: schema-bridge/package-lock.json
+      - run: npm ci
+        working-directory: schema-bridge
+      - run: npm run lint
+        working-directory: schema-bridge
+      - run: npm run test
+        working-directory: schema-bridge
+      - run: npm run build
+        working-directory: schema-bridge

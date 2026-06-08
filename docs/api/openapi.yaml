@@ -1,0 +1,296 @@
+openapi: 3.1.0
+info:
+  title: SchemaBridge API
+  version: 0.1.0
+servers:
+  - url: http://localhost:4000
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: API status
+  /schemas:
+    post:
+      summary: Create a schema document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSchemaRequest"
+      responses:
+        "200":
+          description: Created schema
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaDocument"
+    get:
+      summary: List schema documents
+      responses:
+        "200":
+          description: Schemas
+  /schemas/{id}:
+    get:
+      summary: Get schema document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Schema
+        "404":
+          description: Not found
+  /mappings:
+    post:
+      summary: Create mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMappingRequest"
+      responses:
+        "200":
+          description: Created mapping
+    get:
+      summary: List mappings
+      responses:
+        "200":
+          description: Mappings
+  /mappings/{id}:
+    get:
+      summary: Get mapping
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Mapping
+        "404":
+          description: Not found
+  /mappings/{id}/versions:
+    post:
+      summary: Create mapping version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules]
+              properties:
+                rules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MappingRule"
+      responses:
+        "200":
+          description: Updated mapping
+  /mappings/{id}/restore:
+    post:
+      summary: Restore mapping version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Updated mapping
+  /transform:
+    post:
+      summary: Execute transformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input, rules]
+              properties:
+                input: {}
+                rules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MappingRule"
+      responses:
+        "200":
+          description: Transform result
+  /bindings:
+    get:
+      summary: List proxy bindings
+      responses:
+        "200":
+          description: Bindings
+    post:
+      summary: Create proxy binding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProxyBindingRequest"
+      responses:
+        "200":
+          description: Created binding
+  /bindings/{id}:
+    get:
+      summary: Get proxy binding
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Binding
+        "404":
+          description: Not found
+    patch:
+      summary: Update proxy binding
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProxyBindingRequest"
+      responses:
+        "200":
+          description: Updated binding
+        "404":
+          description: Not found
+    delete:
+      summary: Delete proxy binding
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+components:
+  schemas:
+    CreateSchemaRequest:
+      type: object
+      required: [name, content]
+      properties:
+        name:
+          type: string
+        content: {}
+    SchemaDocument:
+      type: object
+      required: [id, name, content, fields, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        content: {}
+        fields:
+          type: array
+        createdAt:
+          type: string
+          format: date-time
+    CreateMappingRequest:
+      type: object
+      required: [name, sourceSchemaId, targetSchemaId, rules]
+      properties:
+        name:
+          type: string
+        sourceSchemaId:
+          type: string
+          format: uuid
+        targetSchemaId:
+          type: string
+          format: uuid
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/MappingRule"
+    MappingRule:
+      type: object
+      required: [id, sourcePath, targetPath]
+      properties:
+        id:
+          type: string
+        sourcePath:
+          type: string
+        targetPath:
+          type: string
+        defaultValue: {}
+        transform:
+          type: string
+          enum: [string, number, boolean, lowercase, uppercase, iso-date]
+    CreateProxyBindingRequest:
+      type: object
+      required: [name, method, pathPattern, upstreamBaseUrl, mappingId]
+      properties:
+        name:
+          type: string
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, "*"]
+        pathPattern:
+          type: string
+        upstreamBaseUrl:
+          type: string
+          format: uri
+        mappingId:
+          type: string
+          format: uuid
+        responseMappingId:
+          type: string
+          format: uuid
+          nullable: true
+        forwardHeaders:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean

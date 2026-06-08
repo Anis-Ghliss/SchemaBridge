@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SchemaDocument {
+  id        String   @id @default(uuid())
+  name      String
+  content   Json
+  fields    Json
+  createdAt DateTime @default(now())
+
+  sourceMappings Mapping[] @relation("SourceSchema")
+  targetMappings Mapping[] @relation("TargetSchema")
+}
+
+model Mapping {
+  id               String           @id @default(uuid())
+  name             String
+  sourceSchemaId   String
+  targetSchemaId   String
+  currentVersion   Int              @default(1)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  sourceSchema     SchemaDocument   @relation("SourceSchema", fields: [sourceSchemaId], references: [id], onDelete: Cascade)
+  targetSchema     SchemaDocument   @relation("TargetSchema", fields: [targetSchemaId], references: [id], onDelete: Cascade)
+  versions         MappingVersion[]
+  requestBindings  ProxyBinding[]   @relation("RequestMapping")
+  responseBindings ProxyBinding[]   @relation("ResponseMapping")
+}
+
+model MappingVersion {
+  id        String   @id @default(uuid())
+  mappingId String
+  version   Int
+  rules     Json
+  createdAt DateTime @default(now())
+  mapping   Mapping  @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+
+  @@unique([mappingId, version])
+}
+
+model ProxyBinding {
+  id                String   @id @default(uuid())
+  name              String
+  method            String
+  pathPattern       String
+  upstreamBaseUrl   String
+  mappingId         String
+  responseMappingId String?
+  forwardHeaders    Json
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  mapping           Mapping  @relation("RequestMapping", fields: [mappingId], references: [id], onDelete: Restrict)
+  responseMapping   Mapping? @relation("ResponseMapping", fields: [responseMappingId], references: [id], onDelete: SetNull)
+}
