@@ -36,7 +36,7 @@ export function MappingCanvas({ sourceFields, targetFields, rules, onRulesChange
     source: `source:${rule.sourcePath}`,
     target: `target:${rule.targetPath}`,
     animated: true,
-    style: { stroke: "hsl(173 80% 31%)", strokeWidth: 2 }
+    style: { stroke: "hsl(0 0% 9%)", strokeWidth: 1.5 }
   }));
 
   const onConnect: OnConnect = (connection) => {

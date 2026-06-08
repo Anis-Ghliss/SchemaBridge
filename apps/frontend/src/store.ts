@@ -15,32 +15,33 @@ import {
 } from "./lib/api";
 import { sampleSource, sampleTarget } from "./lib/samples";
 
-export type AppView = "define" | "connect" | "deploy" | "observe";
-
-export const APP_STEPS: readonly { readonly id: AppView; readonly label: string; readonly hint: string }[] = [
-  { id: "define", label: "Define", hint: "Capture both shapes" },
-  { id: "connect", label: "Connect", hint: "Map source fields to target" },
-  { id: "deploy", label: "Deploy", hint: "Wire up a runtime route" },
-  { id: "observe", label: "Observe", hint: "Send and watch traffic" }
-];
+export type ResourceView = "schemas" | "mappings" | "bindings" | "live";
 
 interface AppState {
-  readonly view: AppView;
+  readonly view: ResourceView;
+  readonly selectedSchemaId?: string;
+  readonly selectedMappingId?: string;
+  readonly selectedBindingId?: string;
+  readonly quickStartOpen: boolean;
   readonly schemas: readonly SchemaDocument[];
   readonly mappings: readonly MappingDocument[];
   readonly bindings: readonly ProxyBinding[];
-  readonly sourceSchema?: SchemaDocument;
-  readonly targetSchema?: SchemaDocument;
   readonly activeMapping?: MappingDocument;
   readonly rules: readonly MappingRule[];
   readonly status: string;
   readonly output?: JsonValue;
   readonly error?: string;
-  readonly setView: (view: AppView) => void;
+  readonly setView: (view: ResourceView) => void;
+  readonly selectSchema: (id?: string) => void;
+  readonly selectMapping: (id?: string) => void;
+  readonly selectBinding: (id?: string) => void;
+  readonly openQuickStart: () => void;
+  readonly closeQuickStart: () => void;
   readonly load: () => Promise<void>;
-  readonly saveSchemaPair: (source: { readonly name: string; readonly content: JsonValue }, target: { readonly name: string; readonly content: JsonValue }) => Promise<void>;
+  readonly createSchema: (input: { readonly name: string; readonly content: JsonValue }) => Promise<SchemaDocument>;
   readonly setRules: (rules: readonly MappingRule[]) => void;
-  readonly saveMapping: (name: string) => Promise<void>;
+  readonly setActiveMapping: (id: string) => void;
+  readonly createMapping: (input: { readonly name: string; readonly sourceSchemaId: string; readonly targetSchemaId: string; readonly rules: readonly MappingRule[] }) => Promise<MappingDocument>;
   readonly saveVersion: () => Promise<void>;
   readonly restoreVersion: (version: number) => Promise<void>;
   readonly runTransform: (input: JsonValue) => Promise<void>;
@@ -51,7 +52,8 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  view: "define",
+  view: "bindings",
+  quickStartOpen: false,
   schemas: [],
   mappings: [],
   bindings: [],
@@ -60,48 +62,63 @@ export const useAppStore = create<AppState>((set, get) => ({
   setView(view) {
     set({ view });
   },
-  async load() {
-    const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
-    const preferredMappingId = bindings[0]?.mappingId;
-    const activeMapping = (preferredMappingId ? mappings.find((mapping) => mapping.id === preferredMappingId) : undefined) ?? mappings[0];
-    const sourceSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.sourceSchemaId) : undefined;
-    const targetSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.targetSchemaId) : undefined;
+  selectSchema(id) {
+    set({ selectedSchemaId: id });
+  },
+  selectMapping(id) {
+    const mapping = id ? get().mappings.find((item) => item.id === id) : undefined;
     set({
-      schemas,
-      mappings,
-      bindings,
-      activeMapping,
-      sourceSchema,
-      targetSchema,
-      rules: activeMapping?.versions.find((version) => version.version === activeMapping.currentVersion)?.rules ?? []
+      selectedMappingId: id,
+      activeMapping: mapping,
+      rules: mapping?.versions.find((version) => version.version === mapping.currentVersion)?.rules ?? []
     });
   },
-  async saveSchemaPair(source, target) {
-    set({ status: "Saving schemas", error: undefined });
-    const [sourceSchema, targetSchema] = await Promise.all([createSchema(source), createSchema(target)]);
-    set({ sourceSchema, targetSchema, schemas: [sourceSchema, targetSchema, ...get().schemas], status: "Schemas saved" });
+  selectBinding(id) {
+    set({ selectedBindingId: id });
+  },
+  openQuickStart() {
+    set({ quickStartOpen: true });
+  },
+  closeQuickStart() {
+    set({ quickStartOpen: false });
+  },
+  async load() {
+    const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
+    set({ schemas, mappings, bindings });
+  },
+  async createSchema(input) {
+    const schema = await createSchema(input);
+    set({ schemas: [schema, ...get().schemas], status: `Schema ${schema.name} created` });
+    return schema;
   },
   setRules(rules) {
     set({ rules });
   },
-  async saveMapping(name) {
-    const { sourceSchema, targetSchema, rules } = get();
-    if (!sourceSchema || !targetSchema) throw new Error("Save source and target schemas before creating a mapping.");
-    const mapping = await createMapping({ name, sourceSchemaId: sourceSchema.id, targetSchemaId: targetSchema.id, rules: [...rules] });
-    set({ activeMapping: mapping, mappings: [mapping, ...get().mappings], status: "Mapping saved" });
+  setActiveMapping(id) {
+    const mapping = get().mappings.find((item) => item.id === id);
+    if (!mapping) return;
+    set({
+      activeMapping: mapping,
+      rules: mapping.versions.find((version) => version.version === mapping.currentVersion)?.rules ?? []
+    });
+  },
+  async createMapping(input) {
+    const mapping = await createMapping({ name: input.name, sourceSchemaId: input.sourceSchemaId, targetSchemaId: input.targetSchemaId, rules: [...input.rules] });
+    set({ activeMapping: mapping, mappings: [mapping, ...get().mappings], status: `Mapping ${mapping.name} created`, rules: [...input.rules] });
+    return mapping;
   },
   async saveVersion() {
     const { activeMapping, rules } = get();
-    if (!activeMapping) throw new Error("Save a mapping before creating versions.");
+    if (!activeMapping) throw new Error("Select a mapping first.");
     const mapping = await createMappingVersion(activeMapping.id, [...rules]);
     set({ activeMapping: mapping, mappings: get().mappings.map((item) => (item.id === mapping.id ? mapping : item)), status: `Version ${mapping.currentVersion} saved` });
   },
   async restoreVersion(version) {
     const { activeMapping } = get();
-    if (!activeMapping) throw new Error("No active mapping selected.");
+    if (!activeMapping) throw new Error("Select a mapping first.");
     const mapping = await restoreMappingVersion(activeMapping.id, version);
     const rules = mapping.versions.find((item) => item.version === version)?.rules ?? [];
-    set({ activeMapping: mapping, rules, status: `Restored version ${version}` });
+    set({ activeMapping: mapping, rules, mappings: get().mappings.map((item) => (item.id === mapping.id ? mapping : item)), status: `Restored version ${version}` });
   },
   async runTransform(input) {
     const result = await transform({ input, rules: [...get().rules] });
@@ -133,13 +150,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     ];
     const mapping = await createMapping({ name: "Customer v1 → v2", sourceSchemaId: sourceSchema.id, targetSchemaId: targetSchema.id, rules });
     set({
-      sourceSchema,
-      targetSchema,
       activeMapping: mapping,
       schemas: [sourceSchema, targetSchema, ...get().schemas],
       mappings: [mapping, ...get().mappings],
       rules,
-      status: "Sample loaded — pick a target service and create a binding"
+      status: "Sample loaded — wire up a binding to test it"
     });
   }
 }));

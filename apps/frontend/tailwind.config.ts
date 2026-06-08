@@ -5,12 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        border: "hsl(214 32% 91%)",
-        background: "hsl(210 40% 98%)",
-        foreground: "hsl(222 47% 11%)",
-        muted: "hsl(210 40% 96%)",
-        primary: "hsl(173 80% 31%)",
-        accent: "hsl(38 92% 50%)"
+        border: "hsl(0 0% 90%)",
+        background: "hsl(0 0% 99%)",
+        foreground: "hsl(0 0% 9%)",
+        muted: "hsl(0 0% 96%)",
+        primary: "hsl(0 0% 9%)",
+        "primary-foreground": "hsl(0 0% 100%)",
+        accent: "hsl(0 0% 30%)"
       }
     }
   },

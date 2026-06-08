@@ -1,6 +1,6 @@
 // Regenerates README screenshots from a running demo stack.
 //
-// Prereq: `docker compose --profile demo up -d` is running and the GUI is at :5173.
+// Prereq: `docker compose --profile demo up -d` is running and the GUI is at :4000.
 // Run:    npm i --no-save playwright && node scripts/screenshots.mjs
 //
 // Playwright is intentionally not a project dependency — this script is for the
@@ -24,28 +24,26 @@ async function shot(name, prep) {
   console.log(`captured ${name}`);
 }
 
-await shot("define", async () => {
-  // Define is step 1 — default view.
+await shot("bindings", async () => {
+  await page.click("button:has-text('Bindings')");
 });
 
-await shot("connect", async () => {
-  await page.click("button:has-text('Connect')");
-  await sleep(400);
+await shot("mappings", async () => {
+  await page.click("button:has-text('Mappings')");
 });
 
-await shot("deploy", async () => {
-  await page.click("button:has-text('Deploy')");
-  await sleep(400);
+await shot("schemas", async () => {
+  await page.click("button:has-text('Schemas')");
 });
 
-await shot("observe-try", async () => {
-  await page.click("button:has-text('Observe')");
-  await sleep(400);
-});
-
-await shot("observe-live", async () => {
-  await page.click("button:has-text('Live traffic')");
+await shot("live", async () => {
+  await page.click("button:has-text('Live')");
   await sleep(2500);
+});
+
+await shot("quick-start", async () => {
+  await page.click("button:has-text('Quick start')");
+  await sleep(400);
 });
 
 await browser.close();

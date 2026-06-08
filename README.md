@@ -5,12 +5,14 @@
 
 **Programmable mapping middleware for JSON-over-HTTP workflows.** Design payload transformations in a visual editor, then deploy them as runtime bindings — traffic hitting the bridge is reshaped in-flight and forwarded to the right upstream. Drop it anywhere JSON shapes don't agree.
 
-![Define step — paste source + target payloads](docs/screenshots/define.png)
+![Bindings — every route the bridge serves, in one searchable list](docs/screenshots/bindings.png)
 
-The whole product is one short stepper: **① Define** payload shapes, **② Connect** fields, **③ Deploy** a runtime binding, **④ Observe** traffic flowing through. Each step shows only the controls it needs — no dashboard to scan, no settings hidden in side panels.
+The GUI is organized around the four things a team actually manages: **Bindings** (routes on the proxy), **Mappings** (the field-level rules), **Schemas** (the payload shapes), and **Live** (an observable tail of every proxied request). Each is its own searchable list with detail views — no linear flow forced on you when you have ten services and twenty mappings.
 
-![Connect step — mapping canvas with name suggestions](docs/screenshots/connect.png)
-![Observe step — live traffic tail with binding attribution](docs/screenshots/observe-live.png)
+![Mappings — topology at a glance with "used by" counts](docs/screenshots/mappings.png)
+![Live — filterable tail with binding attribution and status colors](docs/screenshots/live.png)
+
+A **Quick start** modal in the sidebar walks new installs through capturing two shapes, suggesting field pairings, and deploying the first binding — then drops you on the new binding's page to send a test request.
 
 ## Why
 
@@ -94,9 +96,9 @@ The bridge reshapes the body into the v2 layout (including ISO-date normalizatio
 
 ## Screenshots
 
-| Deploy | Try it |
+| Schemas | Quick start |
 | --- | --- |
-| ![Bindings list](docs/screenshots/deploy.png) | ![Proxy probe with curl helper](docs/screenshots/observe-try.png) |
+| ![Schema registry with dependents](docs/screenshots/schemas.png) | ![Guided 5-step modal](docs/screenshots/quick-start.png) |
 
 ## How it works
 
