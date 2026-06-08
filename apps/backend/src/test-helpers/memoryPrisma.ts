@@ -43,6 +43,7 @@ interface BindingRow {
 interface ProxyRequestLogRow {
   id: string;
   bindingId: string | null;
+  appId: string | null;
   method: string;
   path: string;
   statusCode: number;
@@ -54,6 +55,20 @@ interface ProxyRequestLogRow {
   createdAt: Date;
 }
 
+interface ProxyAppRow {
+  id: string;
+  name: string;
+  description: string | null;
+  keyHash: string;
+  keyPrefix: string;
+  scope: string;
+  bindingIds: unknown;
+  enabled: boolean;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 type WhereId = { where: { id: string } };
 
 export function createMemoryPrisma() {
@@ -62,6 +77,7 @@ export function createMemoryPrisma() {
   const versions: MappingVersionRow[] = [];
   const bindings: BindingRow[] = [];
   const proxyLogs: ProxyRequestLogRow[] = [];
+  const proxyApps: ProxyAppRow[] = [];
 
   function getMappingWithVersions(id: string) {
     const mapping = mappings.find((m) => m.id === id);
@@ -162,8 +178,8 @@ export function createMemoryPrisma() {
       }
     },
     proxyRequestLog: {
-      async create({ data }: { data: Omit<ProxyRequestLogRow, "id" | "createdAt"> }) {
-        const row: ProxyRequestLogRow = { ...data, id: randomUUID(), createdAt: new Date() };
+      async create({ data }: { data: Omit<ProxyRequestLogRow, "id" | "createdAt" | "appId"> & { appId?: string | null } }) {
+        const row: ProxyRequestLogRow = { ...data, appId: data.appId ?? null, id: randomUUID(), createdAt: new Date() };
         proxyLogs.push(row);
         return row;
       },
@@ -178,6 +194,37 @@ export function createMemoryPrisma() {
         return proxyLogs.find((row) => row.id === where.id) ?? null;
       }
     },
+    proxyApp: {
+      async create({ data }: { data: Omit<ProxyAppRow, "id" | "createdAt" | "updatedAt" | "lastUsedAt"> }) {
+        const now = new Date();
+        const row: ProxyAppRow = { ...data, id: randomUUID(), lastUsedAt: null, createdAt: now, updatedAt: now };
+        proxyApps.push(row);
+        return row;
+      },
+      async findMany({ orderBy }: { orderBy?: { createdAt?: "asc" | "desc" } } = {}) {
+        const rows = [...proxyApps];
+        if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        else rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return rows;
+      },
+      async findUnique({ where }: { where: { id?: string; keyHash?: string } }) {
+        if (where.id) return proxyApps.find((row) => row.id === where.id) ?? null;
+        if (where.keyHash) return proxyApps.find((row) => row.keyHash === where.keyHash) ?? null;
+        return null;
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<ProxyAppRow> }) {
+        const row = proxyApps.find((item) => item.id === where.id);
+        if (!row) throw new Error("not found");
+        Object.assign(row, data);
+        row.updatedAt = new Date();
+        return row;
+      },
+      async delete({ where }: { where: { id: string } }) {
+        const index = proxyApps.findIndex((row) => row.id === where.id);
+        if (index < 0) throw new Error("not found");
+        return proxyApps.splice(index, 1)[0];
+      }
+    },
     seed: {
       schema(input: Omit<SchemaRow, "createdAt"> & { createdAt?: Date }) {
         schemas.push({ ...input, createdAt: input.createdAt ?? new Date() });
@@ -190,6 +237,10 @@ export function createMemoryPrisma() {
       binding(input: Omit<BindingRow, "createdAt" | "updatedAt"> & { createdAt?: Date }) {
         const now = input.createdAt ?? new Date();
         bindings.push({ ...input, createdAt: now, updatedAt: now });
+      },
+      app(input: Omit<ProxyAppRow, "createdAt" | "updatedAt" | "lastUsedAt"> & { createdAt?: Date; lastUsedAt?: Date | null }) {
+        const now = input.createdAt ?? new Date();
+        proxyApps.push({ ...input, lastUsedAt: input.lastUsedAt ?? null, createdAt: now, updatedAt: now });
       }
     }
   };

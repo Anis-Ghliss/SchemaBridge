@@ -1,11 +1,13 @@
-import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, Sparkles } from "lucide-react";
+import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect } from "react";
 import { useAppStore, type ResourceView } from "../store";
 import { SchemasPage } from "../pages/SchemasPage";
 import { MappingsPage } from "../pages/MappingsPage";
 import { BindingsPage } from "../pages/BindingsPage";
+import { AppsPage } from "../pages/AppsPage";
 import { LivePage } from "../pages/LivePage";
 import { QuickStartModal } from "./QuickStartModal";
+import { RevealKeyDialog } from "./RevealKeyDialog";
 import { cn } from "../lib/utils";
 
 interface NavItem {
@@ -18,11 +20,12 @@ const NAV: readonly NavItem[] = [
   { id: "bindings", label: "Bindings", icon: Plug },
   { id: "mappings", label: "Mappings", icon: GitBranch },
   { id: "schemas", label: "Schemas", icon: Layers3 },
+  { id: "apps", label: "Apps", icon: ShieldCheck },
   { id: "live", label: "Live", icon: Radio }
 ];
 
 export function ResourceShell() {
-  const { view, setView, status, load, schemas, mappings, bindings, quickStartOpen, openQuickStart } = useAppStore();
+  const { view, setView, status, load, schemas, mappings, bindings, apps, quickStartOpen, openQuickStart, revealedKey } = useAppStore();
 
   useEffect(() => {
     void load().catch(() => undefined);
@@ -32,6 +35,7 @@ export function ResourceShell() {
     schemas: schemas.length,
     mappings: mappings.length,
     bindings: bindings.length,
+    apps: apps.length,
     live: 0
   };
 
@@ -97,11 +101,13 @@ export function ResourceShell() {
           {view === "schemas" && <SchemasPage />}
           {view === "mappings" && <MappingsPage />}
           {view === "bindings" && <BindingsPage />}
+          {view === "apps" && <AppsPage />}
           {view === "live" && <LivePage />}
         </main>
       </div>
 
       {quickStartOpen && <QuickStartModal />}
+      {revealedKey && <RevealKeyDialog />}
     </div>
   );
 }

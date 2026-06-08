@@ -77,4 +77,33 @@ describe("admin api", () => {
     });
     expect(response.statusCode).toBe(400);
   });
+
+  it("creates an app and reveals the key once", async () => {
+    const app = createApp({ prisma: prisma as never });
+    const created = await app.inject({
+      method: "POST",
+      url: "/apps",
+      payload: { name: "service-a", scope: "all" }
+    });
+    expect(created.statusCode).toBe(200);
+    const body = created.json() as { id: string; key: string; keyPrefix: string };
+    expect(body.key.startsWith("sb_")).toBe(true);
+    expect(body.keyPrefix.startsWith("sb_")).toBe(true);
+
+    const listed = await app.inject({ method: "GET", url: "/apps" });
+    const apps = listed.json() as Array<Record<string, unknown>>;
+    expect(apps).toHaveLength(1);
+    expect(apps[0].key).toBeUndefined();
+  });
+
+  it("rotates an app key with a fresh plaintext", async () => {
+    const app = createApp({ prisma: prisma as never });
+    const created = await app.inject({ method: "POST", url: "/apps", payload: { name: "rotator" } });
+    const original = (created.json() as { key: string }).key;
+    const rotated = await app.inject({ method: "POST", url: `/apps/${(created.json() as { id: string }).id}/rotate` });
+    expect(rotated.statusCode).toBe(200);
+    const rotatedBody = rotated.json() as { key: string };
+    expect(rotatedBody.key).not.toBe(original);
+    expect(rotatedBody.key.startsWith("sb_")).toBe(true);
+  });
 });

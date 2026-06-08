@@ -1,13 +1,17 @@
 import type {
   CreateMappingRequest,
+  CreateProxyAppRequest,
   CreateProxyBindingRequest,
   CreateSchemaRequest,
   MappingDocument,
+  ProxyApp,
+  ProxyAppWithKey,
   ProxyBinding,
   ProxyRequestLog,
   SchemaDocument,
   TransformRequest,
   TransformResult,
+  UpdateProxyAppRequest,
   UpdateProxyBindingRequest
 } from "@schemabridge/shared-types";
 
@@ -73,6 +77,27 @@ export async function deleteBinding(id: string): Promise<void> {
   if (!response.ok) throw new Error(await response.text());
 }
 
+export async function listProxyApps(): Promise<readonly ProxyApp[]> {
+  return request("/apps");
+}
+
+export async function createProxyApp(input: CreateProxyAppRequest): Promise<ProxyAppWithKey> {
+  return request("/apps", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateProxyApp(id: string, input: UpdateProxyAppRequest): Promise<ProxyApp> {
+  return request(`/apps/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function rotateProxyAppKey(id: string): Promise<ProxyAppWithKey> {
+  return request(`/apps/${id}/rotate`, { method: "POST" });
+}
+
+export async function deleteProxyApp(id: string): Promise<void> {
+  const response = await fetch(`${API_URL}/apps/${id}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await response.text());
+}
+
 export async function listProxyRequests(options: { readonly limit?: number; readonly since?: string } = {}): Promise<readonly ProxyRequestLog[]> {
   const params = new URLSearchParams();
   if (options.limit !== undefined) params.set("limit", String(options.limit));
@@ -87,17 +112,19 @@ export interface ProxyProbeResult {
   readonly body: unknown;
 }
 
-export async function probeProxy(binding: ProxyBinding, body: unknown): Promise<ProxyProbeResult> {
+export async function probeProxy(binding: ProxyBinding, body: unknown, options: { readonly apiKey?: string } = {}): Promise<ProxyProbeResult> {
   const method = binding.method === "*" ? "POST" : binding.method;
   const url = `${PROXY_URL}${concretizePath(binding.pathPattern)}`;
+  const requestHeaders: Record<string, string> = { "content-type": "application/json" };
+  if (options.apiKey) requestHeaders["authorization"] = `Bearer ${options.apiKey}`;
   const response = await fetch(url, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: requestHeaders,
     body: methodHasBody(method) ? JSON.stringify(body) : undefined
   });
-  const headers: Record<string, string> = {};
+  const responseHeaders: Record<string, string> = {};
   response.headers.forEach((value, key) => {
-    headers[key] = value;
+    responseHeaders[key] = value;
   });
   const text = await response.text();
   let parsed: unknown = text;
@@ -106,7 +133,7 @@ export async function probeProxy(binding: ProxyBinding, body: unknown): Promise<
   } catch {
     parsed = text;
   }
-  return { status: response.status, headers, body: parsed };
+  return { status: response.status, headers: responseHeaders, body: parsed };
 }
 
 function methodHasBody(method: string): boolean {

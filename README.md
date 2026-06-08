@@ -72,6 +72,20 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 | `PROXY_PORT` | `8080` | Runtime proxy port |
 | `CORS_ORIGIN` | `*` | CORS allow-list for the admin API |
 | `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings to load on first boot |
+| `PROXY_REQUIRE_AUTH` | `false` | When `true`, the proxy rejects requests without a valid `Authorization: Bearer <key>` belonging to a registered app |
+
+### Authorizing services
+
+In any non-local deployment, set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab. Each app gets a `sb_…` API key (shown once on creation — copy it to a vault, you can rotate later). Scope each app to "all bindings" or a specific subset.
+
+```bash
+curl -X POST http://localhost:8080/customers \
+  -H 'authorization: Bearer sb_yourKeyHere' \
+  -H 'content-type: application/json' \
+  -d '{"customerName":"Ada"}'
+```
+
+Disabled apps and out-of-scope routes return `403`; missing or unknown keys return `401`. Every proxied request is attributed to the app that authorized it in the Live traffic tab.
 
 ## Try it locally (with built-in demo)
 

@@ -26,6 +26,7 @@ services:
       PORT: 4000
       PROXY_PORT: 8080
       BINDINGS_SEED_FILE: /seed/bindings.json
+      PROXY_REQUIRE_AUTH: ${PROXY_REQUIRE_AUTH:-false}
     volumes:
       - ./examples/seed:/seed:ro
     ports:

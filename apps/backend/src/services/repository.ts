@@ -2,25 +2,33 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { parseSchema } from "@schemabridge/schema-parser";
 import type {
   CreateMappingRequest,
+  CreateProxyAppRequest,
   CreateProxyBindingRequest,
   CreateSchemaRequest,
   MappingDocument,
   MappingRule,
+  ProxyApp,
+  ProxyAppScope,
+  ProxyAppWithKey,
   ProxyBinding,
   ProxyBindingMethod,
   ProxyRequestLog,
   SchemaDocument,
+  UpdateProxyAppRequest,
   UpdateProxyBindingRequest
 } from "@schemabridge/shared-types";
+import { generateApiKey, hashApiKey } from "./authService.js";
 
 type MappingRecord = Prisma.MappingGetPayload<{ include: { versions: true } }>;
 type ProxyBindingRecord = Prisma.ProxyBindingGetPayload<Record<string, never>>;
 type ProxyRequestLogRecord = Prisma.ProxyRequestLogGetPayload<Record<string, never>>;
+type ProxyAppRecord = Prisma.ProxyAppGetPayload<Record<string, never>>;
 
 const MAX_LOGGED_BODY_BYTES = 16_384;
 
 export interface RecordProxyRequestInput {
   readonly bindingId: string | null;
+  readonly appId?: string | null;
   readonly method: string;
   readonly path: string;
   readonly statusCode: number;
@@ -201,6 +209,7 @@ export class SchemaBridgeRepository {
     await this.prisma.proxyRequestLog.create({
       data: {
         bindingId: input.bindingId,
+        appId: input.appId ?? null,
         method: input.method,
         path: input.path,
         statusCode: input.statusCode,
@@ -211,6 +220,75 @@ export class SchemaBridgeRepository {
         errors: input.errors as unknown as Prisma.InputJsonValue
       }
     });
+  }
+
+  public async createProxyApp(input: CreateProxyAppRequest): Promise<ProxyAppWithKey> {
+    const generated = generateApiKey();
+    const record = await this.prisma.proxyApp.create({
+      data: {
+        name: input.name,
+        description: input.description ?? null,
+        keyHash: generated.hash,
+        keyPrefix: generated.prefix,
+        scope: input.scope ?? "all",
+        bindingIds: (input.bindingIds ?? []) as unknown as Prisma.InputJsonValue,
+        enabled: input.enabled ?? true
+      }
+    });
+    return { ...toProxyApp(record), key: generated.plaintext };
+  }
+
+  public async listProxyApps(): Promise<readonly ProxyApp[]> {
+    const records = await this.prisma.proxyApp.findMany({ orderBy: { createdAt: "asc" } });
+    return records.map(toProxyApp);
+  }
+
+  public async getProxyApp(id: string): Promise<ProxyApp | null> {
+    const record = await this.prisma.proxyApp.findUnique({ where: { id } });
+    return record ? toProxyApp(record) : null;
+  }
+
+  public async findProxyAppByPlaintextKey(plaintext: string): Promise<ProxyApp | null> {
+    const record = await this.prisma.proxyApp.findUnique({ where: { keyHash: hashApiKey(plaintext) } });
+    return record ? toProxyApp(record) : null;
+  }
+
+  public async updateProxyApp(id: string, input: UpdateProxyAppRequest): Promise<ProxyApp | null> {
+    const existing = await this.prisma.proxyApp.findUnique({ where: { id } });
+    if (!existing) return null;
+    const record = await this.prisma.proxyApp.update({
+      where: { id },
+      data: {
+        name: input.name ?? undefined,
+        description: input.description === undefined ? undefined : input.description ?? null,
+        scope: input.scope ?? undefined,
+        bindingIds: input.bindingIds === undefined ? undefined : (input.bindingIds as unknown as Prisma.InputJsonValue),
+        enabled: input.enabled ?? undefined
+      }
+    });
+    return toProxyApp(record);
+  }
+
+  public async rotateProxyAppKey(id: string): Promise<ProxyAppWithKey | null> {
+    const existing = await this.prisma.proxyApp.findUnique({ where: { id } });
+    if (!existing) return null;
+    const generated = generateApiKey();
+    const record = await this.prisma.proxyApp.update({
+      where: { id },
+      data: { keyHash: generated.hash, keyPrefix: generated.prefix }
+    });
+    return { ...toProxyApp(record), key: generated.plaintext };
+  }
+
+  public async deleteProxyApp(id: string): Promise<boolean> {
+    const existing = await this.prisma.proxyApp.findUnique({ where: { id } });
+    if (!existing) return false;
+    await this.prisma.proxyApp.delete({ where: { id } });
+    return true;
+  }
+
+  public async touchProxyAppLastUsed(id: string): Promise<void> {
+    await this.prisma.proxyApp.update({ where: { id }, data: { lastUsedAt: new Date() } });
   }
 
   public async listProxyRequests(options: { readonly limit?: number; readonly since?: string } = {}): Promise<readonly ProxyRequestLog[]> {
@@ -262,6 +340,7 @@ function toProxyRequestLog(record: ProxyRequestLogRecord): ProxyRequestLog {
   return {
     id: record.id,
     bindingId: record.bindingId,
+    appId: record.appId,
     method: record.method,
     path: record.path,
     statusCode: record.statusCode,
@@ -271,6 +350,21 @@ function toProxyRequestLog(record: ProxyRequestLogRecord): ProxyRequestLog {
     responseBody: (record.responseBody ?? null) as ProxyRequestLog["responseBody"],
     errors: (record.errors ?? []) as unknown as string[],
     createdAt: record.createdAt.toISOString()
+  };
+}
+
+function toProxyApp(record: ProxyAppRecord): ProxyApp {
+  return {
+    id: record.id,
+    name: record.name,
+    description: record.description,
+    keyPrefix: record.keyPrefix,
+    scope: record.scope as ProxyAppScope,
+    bindingIds: (record.bindingIds ?? []) as unknown as string[],
+    enabled: record.enabled,
+    lastUsedAt: record.lastUsedAt ? record.lastUsedAt.toISOString() : null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
   };
 }
 

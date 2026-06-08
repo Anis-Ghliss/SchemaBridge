@@ -105,12 +105,13 @@ const host = process.env.HOST ?? "0.0.0.0";
 const corsOrigin = process.env.CORS_ORIGIN;
 const seedFile = process.env.BINDINGS_SEED_FILE;
 const frontendDist = process.env.FRONTEND_DIST;
+const requireAuth = (process.env.PROXY_REQUIRE_AUTH ?? "false").toLowerCase() === "true";
 
 if (seedFile) {
   await runSeed(seedFile);
 }
 
-const proxyBundle = await createProxyApp({ prisma, corsOrigin });
+const proxyBundle = await createProxyApp({ prisma, corsOrigin, requireAuth });
 const adminApp = createApp({ prisma, corsOrigin, frontendDist, onBindingsChanged: () => proxyBundle.proxyService.reload() });
 
 await Promise.all([

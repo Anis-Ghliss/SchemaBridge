@@ -277,8 +277,11 @@ function Field({ label, children }: { readonly label: string; readonly children:
   );
 }
 
+const TRY_API_KEY_STORAGE = "schemabridge:try-api-key";
+
 function TryPanel({ binding }: { readonly binding: ProxyBinding }) {
   const [payload, setPayload] = useState("{\n  \"customerName\": \"Ada\",\n  \"customerEmail\": \"ada@example.com\"\n}");
+  const [apiKey, setApiKey] = useState<string>(() => (typeof window === "undefined" ? "" : window.localStorage.getItem(TRY_API_KEY_STORAGE) ?? ""));
   const [result, setResult] = useState<ProxyProbeResult | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [running, setRunning] = useState(false);
@@ -289,16 +292,22 @@ function TryPanel({ binding }: { readonly binding: ProxyBinding }) {
     const path = binding.pathPattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
     const hasBody = method === "POST" || method === "PUT" || method === "PATCH";
     const lines = [`curl -X ${method} ${PROXY_URL}${path}`, `  -H 'content-type: application/json'`];
+    if (apiKey) lines.push(`  -H 'Authorization: Bearer ${apiKey}'`);
     if (hasBody) lines.push(`  -d '${payload.replace(/\n\s*/g, " ")}'`);
     return lines.join(" \\\n");
-  }, [binding, payload]);
+  }, [binding, payload, apiKey]);
 
   async function run() {
     setRunning(true);
     setError(undefined);
     try {
       const body = JSON.parse(payload) as unknown;
-      const probe = await probeProxy(binding, body);
+      const trimmed = apiKey.trim();
+      if (typeof window !== "undefined") {
+        if (trimmed) window.localStorage.setItem(TRY_API_KEY_STORAGE, trimmed);
+        else window.localStorage.removeItem(TRY_API_KEY_STORAGE);
+      }
+      const probe = await probeProxy(binding, body, trimmed ? { apiKey: trimmed } : {});
       setResult(probe);
     } catch (err) {
       setError(err instanceof Error ? err.message : "unknown error");
@@ -319,6 +328,10 @@ function TryPanel({ binding }: { readonly binding: ProxyBinding }) {
       <Card className="p-5">
         <h3 className="mb-3 text-sm font-semibold">Request</h3>
         <div className="space-y-3">
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="font-medium text-slate-600">API key (only required when PROXY_REQUIRE_AUTH=true)</span>
+            <Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sb_…" />
+          </label>
           <JsonEditor value={payload} onChange={setPayload} label="Request body" minHeight="180px" maxHeight="280px" />
           <Button onClick={() => void run()} disabled={running}>
             <Send className="h-4 w-4" /> {running ? "Sending…" : "Send through proxy"}

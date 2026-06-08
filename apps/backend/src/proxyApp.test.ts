@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MockAgent } from "undici";
 import { createProxyApp } from "./proxyApp";
 import { createMemoryPrisma, type MemoryPrisma } from "./test-helpers/memoryPrisma";
+import { generateApiKey } from "./services/authService";
 
 const SCHEMA_SOURCE_ID = "00000000-0000-4000-8000-000000000001";
 const SCHEMA_TARGET_ID = "00000000-0000-4000-8000-000000000002";
@@ -164,5 +165,129 @@ describe("proxy app", () => {
     const response = await app.inject({ method: "GET", url: "/customers/42" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
+  });
+
+  describe("with PROXY_REQUIRE_AUTH", () => {
+    const APP_ID = "00000000-0000-4000-8000-0000000000c1";
+    const OTHER_BINDING_ID = "00000000-0000-4000-8000-0000000000b2";
+
+    function seedFullBinding(prisma: MemoryPrisma): void {
+      seedRequestMapping(prisma);
+      prisma.seed.binding({
+        id: BINDING_ID,
+        name: "customers",
+        method: "POST",
+        pathPattern: "/customers",
+        upstreamBaseUrl: "http://service-b.local",
+        mappingId: MAPPING_REQUEST_ID,
+        responseMappingId: null,
+        forwardHeaders: ["content-type"],
+        enabled: true
+      });
+    }
+
+    it("returns 401 when no Authorization header is sent", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({ method: "POST", url: "/customers", payload: {} });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("returns 401 for an unknown key", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({ method: "POST", url: "/customers", headers: { authorization: "Bearer sb_notreal" }, payload: {} });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("returns 403 when the app is disabled", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const generated = generateApiKey();
+      prisma.seed.app({
+        id: APP_ID,
+        name: "disabled-app",
+        description: null,
+        keyHash: generated.hash,
+        keyPrefix: generated.prefix,
+        scope: "all",
+        bindingIds: [],
+        enabled: false
+      });
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({ method: "POST", url: "/customers", headers: { authorization: `Bearer ${generated.plaintext}` }, payload: {} });
+      expect(response.statusCode).toBe(403);
+    });
+
+    it("returns 403 when key scope excludes the matched binding", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const generated = generateApiKey();
+      prisma.seed.app({
+        id: APP_ID,
+        name: "scoped-app",
+        description: null,
+        keyHash: generated.hash,
+        keyPrefix: generated.prefix,
+        scope: "selected",
+        bindingIds: [OTHER_BINDING_ID],
+        enabled: true
+      });
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({ method: "POST", url: "/customers", headers: { authorization: `Bearer ${generated.plaintext}` }, payload: {} });
+      expect(response.statusCode).toBe(403);
+    });
+
+    it("forwards when key has scope=all", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const generated = generateApiKey();
+      prisma.seed.app({
+        id: APP_ID,
+        name: "all-app",
+        description: null,
+        keyHash: generated.hash,
+        keyPrefix: generated.prefix,
+        scope: "all",
+        bindingIds: [],
+        enabled: true
+      });
+      agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { ok: true }, { headers: { "content-type": "application/json" } });
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({
+        method: "POST",
+        url: "/customers",
+        headers: { authorization: `Bearer ${generated.plaintext}`, "content-type": "application/json" },
+        payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+      });
+      expect(response.statusCode).toBe(201);
+    });
+
+    it("forwards when scope=selected includes the matched binding", async () => {
+      const prisma = createMemoryPrisma();
+      seedFullBinding(prisma);
+      const generated = generateApiKey();
+      prisma.seed.app({
+        id: APP_ID,
+        name: "scoped-allow-app",
+        description: null,
+        keyHash: generated.hash,
+        keyPrefix: generated.prefix,
+        scope: "selected",
+        bindingIds: [BINDING_ID],
+        enabled: true
+      });
+      agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { ok: true }, { headers: { "content-type": "application/json" } });
+      const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+      const response = await app.inject({
+        method: "POST",
+        url: "/customers",
+        headers: { authorization: `Bearer ${generated.plaintext}`, "content-type": "application/json" },
+        payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+      });
+      expect(response.statusCode).toBe(201);
+    });
   });
 });

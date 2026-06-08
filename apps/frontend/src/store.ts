@@ -1,21 +1,26 @@
-import type { CreateProxyBindingRequest, JsonValue, MappingDocument, MappingRule, ProxyBinding, SchemaDocument, UpdateProxyBindingRequest } from "@schemabridge/shared-types";
+import type { CreateProxyAppRequest, CreateProxyBindingRequest, JsonValue, MappingDocument, MappingRule, ProxyApp, ProxyAppWithKey, ProxyBinding, SchemaDocument, UpdateProxyAppRequest, UpdateProxyBindingRequest } from "@schemabridge/shared-types";
 import { create } from "zustand";
 import {
   createBinding,
   createMapping,
   createMappingVersion,
+  createProxyApp,
   createSchema,
   deleteBinding,
+  deleteProxyApp,
   listBindings,
   listMappings,
+  listProxyApps,
   listSchemas,
   restoreMappingVersion,
+  rotateProxyAppKey,
   transform,
-  updateBinding
+  updateBinding,
+  updateProxyApp
 } from "./lib/api";
 import { sampleSource, sampleTarget } from "./lib/samples";
 
-export type ResourceView = "schemas" | "mappings" | "bindings" | "live";
+export type ResourceView = "schemas" | "mappings" | "bindings" | "apps" | "live";
 
 interface AppState {
   readonly view: ResourceView;
@@ -26,6 +31,9 @@ interface AppState {
   readonly schemas: readonly SchemaDocument[];
   readonly mappings: readonly MappingDocument[];
   readonly bindings: readonly ProxyBinding[];
+  readonly apps: readonly ProxyApp[];
+  readonly selectedAppId?: string;
+  readonly revealedKey?: ProxyAppWithKey;
   readonly activeMapping?: MappingDocument;
   readonly rules: readonly MappingRule[];
   readonly status: string;
@@ -48,6 +56,12 @@ interface AppState {
   readonly addBinding: (input: CreateProxyBindingRequest) => Promise<void>;
   readonly editBinding: (id: string, input: UpdateProxyBindingRequest) => Promise<void>;
   readonly removeBinding: (id: string) => Promise<void>;
+  readonly selectApp: (id?: string) => void;
+  readonly addApp: (input: CreateProxyAppRequest) => Promise<ProxyAppWithKey>;
+  readonly editApp: (id: string, input: UpdateProxyAppRequest) => Promise<void>;
+  readonly rotateAppKey: (id: string) => Promise<ProxyAppWithKey>;
+  readonly removeApp: (id: string) => Promise<void>;
+  readonly clearRevealedKey: () => void;
   readonly loadSample: () => Promise<void>;
 }
 
@@ -57,6 +71,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   schemas: [],
   mappings: [],
   bindings: [],
+  apps: [],
   rules: [],
   status: "Ready",
   setView(view) {
@@ -83,8 +98,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ quickStartOpen: false });
   },
   async load() {
-    const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
-    set({ schemas, mappings, bindings });
+    const [schemas, mappings, bindings, apps] = await Promise.all([listSchemas(), listMappings(), listBindings(), listProxyApps()]);
+    set({ schemas, mappings, bindings, apps });
   },
   async createSchema(input) {
     const schema = await createSchema(input);
@@ -136,6 +151,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     await deleteBinding(id);
     set({ bindings: get().bindings.filter((item) => item.id !== id), status: "Binding removed" });
   },
+  selectApp(id) {
+    set({ selectedAppId: id });
+  },
+  async addApp(input) {
+    const result = await createProxyApp(input);
+    const summary = stripKey(result);
+    set({ apps: [...get().apps, summary], revealedKey: result, status: `App ${result.name} created` });
+    return result;
+  },
+  async editApp(id, input) {
+    const app = await updateProxyApp(id, input);
+    set({ apps: get().apps.map((item) => (item.id === id ? app : item)), status: `App ${app.name} updated` });
+  },
+  async rotateAppKey(id) {
+    const result = await rotateProxyAppKey(id);
+    const summary = stripKey(result);
+    set({ apps: get().apps.map((item) => (item.id === id ? summary : item)), revealedKey: result, status: `Key rotated for ${result.name}` });
+    return result;
+  },
+  async removeApp(id) {
+    await deleteProxyApp(id);
+    set({ apps: get().apps.filter((item) => item.id !== id), selectedAppId: undefined, status: "App removed" });
+  },
+  clearRevealedKey() {
+    set({ revealedKey: undefined });
+  },
   async loadSample() {
     set({ status: "Loading sample…", error: undefined });
     const [sourceSchema, targetSchema] = await Promise.all([
@@ -158,3 +199,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   }
 }));
+
+function stripKey(result: ProxyAppWithKey): ProxyApp {
+  return {
+    id: result.id,
+    name: result.name,
+    description: result.description,
+    keyPrefix: result.keyPrefix,
+    scope: result.scope,
+    bindingIds: result.bindingIds,
+    enabled: result.enabled,
+    lastUsedAt: result.lastUsedAt,
+    createdAt: result.createdAt,
+    updatedAt: result.updatedAt
+  };
+}

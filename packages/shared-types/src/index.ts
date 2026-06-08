@@ -138,6 +138,7 @@ export type UpdateProxyBindingRequest = z.infer<typeof UpdateProxyBindingRequest
 export const ProxyRequestLogSchema = z.object({
   id: z.string().uuid(),
   bindingId: z.string().uuid().nullable(),
+  appId: z.string().uuid().nullable(),
   method: z.string(),
   path: z.string(),
   statusCode: z.number().int(),
@@ -149,3 +150,35 @@ export const ProxyRequestLogSchema = z.object({
   createdAt: z.string().datetime()
 });
 export type ProxyRequestLog = z.infer<typeof ProxyRequestLogSchema>;
+
+export const ProxyAppScopeSchema = z.enum(["all", "selected"]);
+export type ProxyAppScope = z.infer<typeof ProxyAppScopeSchema>;
+
+export const ProxyAppSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  keyPrefix: z.string(),
+  scope: ProxyAppScopeSchema,
+  bindingIds: z.array(z.string().uuid()),
+  enabled: z.boolean(),
+  lastUsedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+export type ProxyApp = z.infer<typeof ProxyAppSchema>;
+
+export const ProxyAppWithKeySchema = ProxyAppSchema.extend({ key: z.string() });
+export type ProxyAppWithKey = z.infer<typeof ProxyAppWithKeySchema>;
+
+export const CreateProxyAppRequestSchema = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(280).optional(),
+  scope: ProxyAppScopeSchema.optional(),
+  bindingIds: z.array(z.string().uuid()).optional(),
+  enabled: z.boolean().optional()
+});
+export type CreateProxyAppRequest = z.infer<typeof CreateProxyAppRequestSchema>;
+
+export const UpdateProxyAppRequestSchema = CreateProxyAppRequestSchema.partial();
+export type UpdateProxyAppRequest = z.infer<typeof UpdateProxyAppRequestSchema>;

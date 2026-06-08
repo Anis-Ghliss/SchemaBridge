@@ -7,10 +7,12 @@ import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
   CreateMappingRequestSchema,
+  CreateProxyAppRequestSchema,
   CreateProxyBindingRequestSchema,
   CreateSchemaRequestSchema,
   RestoreMappingVersionRequestSchema,
   TransformRequestSchema,
+  UpdateProxyAppRequestSchema,
   UpdateProxyBindingRequestSchema
 } from "@schemabridge/shared-types";
 import { SchemaBridgeRepository } from "./services/repository.js";
@@ -142,6 +144,45 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     const deleted = await repository.deleteBinding(params.data.id);
     if (!deleted) return reply.code(404).send({ error: "Binding not found" });
     await onBindingsChanged?.();
+    return reply.code(204).send();
+  });
+
+  app.get("/apps", async () => repository.listProxyApps());
+
+  app.get("/apps/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const app = await repository.getProxyApp(params.data.id);
+    return app ?? reply.code(404).send({ error: "App not found" });
+  });
+
+  app.post("/apps", async (request, reply) => {
+    const body = parseBody(CreateProxyAppRequestSchema, request.body);
+    if (!body.success) return reply.code(400).send({ errors: body.error });
+    return repository.createProxyApp(body.data);
+  });
+
+  app.patch("/apps/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const body = parseBody(UpdateProxyAppRequestSchema, request.body);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    if (!body.success) return reply.code(400).send({ errors: body.error });
+    const app = await repository.updateProxyApp(params.data.id, body.data);
+    return app ?? reply.code(404).send({ error: "App not found" });
+  });
+
+  app.post("/apps/:id/rotate", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const app = await repository.rotateProxyAppKey(params.data.id);
+    return app ?? reply.code(404).send({ error: "App not found" });
+  });
+
+  app.delete("/apps/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const deleted = await repository.deleteProxyApp(params.data.id);
+    if (!deleted) return reply.code(404).send({ error: "App not found" });
     return reply.code(204).send();
   });
 
