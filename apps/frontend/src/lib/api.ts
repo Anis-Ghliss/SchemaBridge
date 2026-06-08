@@ -10,8 +10,22 @@ import type {
   UpdateProxyBindingRequest
 } from "@schemabridge/shared-types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-export const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? "http://localhost:8080";
+const API_URL = resolveApiUrl();
+export const PROXY_URL = resolveProxyUrl();
+
+function resolveApiUrl(): string {
+  const override = import.meta.env.VITE_API_URL;
+  if (override) return override;
+  if (typeof window === "undefined") return "http://localhost:4000";
+  return window.location.origin;
+}
+
+function resolveProxyUrl(): string {
+  const override = import.meta.env.VITE_PROXY_URL;
+  if (override) return override;
+  if (typeof window === "undefined") return "http://localhost:8080";
+  return `${window.location.protocol}//${window.location.hostname}:8080`;
+}
 
 export async function createSchema(input: CreateSchemaRequest): Promise<SchemaDocument> {
   return request("/schemas", { method: "POST", body: JSON.stringify(input) });

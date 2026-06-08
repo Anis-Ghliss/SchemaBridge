@@ -104,13 +104,14 @@ const proxyPort = Number(process.env.PROXY_PORT ?? 8080);
 const host = process.env.HOST ?? "0.0.0.0";
 const corsOrigin = process.env.CORS_ORIGIN;
 const seedFile = process.env.BINDINGS_SEED_FILE;
+const frontendDist = process.env.FRONTEND_DIST;
 
 if (seedFile) {
   await runSeed(seedFile);
 }
 
 const proxyBundle = await createProxyApp({ prisma, corsOrigin });
-const adminApp = createApp({ prisma, corsOrigin, onBindingsChanged: () => proxyBundle.proxyService.reload() });
+const adminApp = createApp({ prisma, corsOrigin, frontendDist, onBindingsChanged: () => proxyBundle.proxyService.reload() });
 
 await Promise.all([
   adminApp.listen({ port: adminPort, host }),

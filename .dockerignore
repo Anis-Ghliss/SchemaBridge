@@ -4,6 +4,9 @@ dist
 **/dist
 coverage
 .git
+.github
 .DS_Store
-apps/frontend/tsconfig.tsbuildinfo
+**/*.tsbuildinfo
+docs/screenshots
+scripts
 npm-debug.log

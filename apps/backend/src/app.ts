@@ -1,6 +1,8 @@
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import type { PrismaClient } from "@prisma/client";
 import { transformPayload, validateMappingRules } from "@schemabridge/transformation-engine";
+import { existsSync } from "node:fs";
 import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -16,6 +18,7 @@ import { SchemaBridgeRepository } from "./services/repository.js";
 export interface AppOptions {
   readonly prisma: PrismaClient;
   readonly corsOrigin?: string;
+  readonly frontendDist?: string;
   readonly onBindingsChanged?: () => void | Promise<void>;
 }
 
@@ -26,6 +29,16 @@ export function createApp(options: AppOptions): FastifyInstance {
   app.register(cors, { origin: options.corsOrigin ?? true });
 
   registerAdminRoutes(app, repository, options.onBindingsChanged);
+
+  if (options.frontendDist && existsSync(options.frontendDist)) {
+    app.register(fastifyStatic, { root: options.frontendDist, prefix: "/", wildcard: false });
+    app.setNotFoundHandler((request, reply) => {
+      if (request.method === "GET" && !request.url.includes(".")) {
+        return reply.sendFile("index.html");
+      }
+      return reply.code(404).send({ error: "not found" });
+    });
+  }
 
   return app;
 }

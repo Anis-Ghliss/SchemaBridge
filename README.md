@@ -22,25 +22,62 @@ Use it for:
 
 Each route is a `ProxyBinding`: method + path pattern + upstream URL + a mapping (and optionally a reverse mapping for the response). Bindings are independent, hot-reloaded on save, and there can be as many as you need — the bridge scales from "one service in front of another" to a fan-out hub that adapts dozens of routes into your stack.
 
-## Run
+## Drop into your stack
 
-Default stack (Postgres + bridge + GUI):
+SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml` alongside whatever you already run; point your services at `bridge:8080`, configure routes in the GUI on `:4000`.
 
-```bash
-docker compose up --build
+```yaml
+services:
+  schemabridge:
+    image: ghcr.io/anis-ghliss/schemabridge:latest
+    ports:
+      - "8080:8080"   # runtime proxy — point your services here
+      - "4000:4000"   # admin API + GUI
+    environment:
+      DATABASE_URL: postgres://app:app@bridge-db:5432/schemabridge
+      # Optional: pre-seed schemas, mappings, and bindings on first boot
+      # BINDINGS_SEED_FILE: /seed/bindings.json
+    # volumes:
+    #   - ./schemabridge-seed.json:/seed/bindings.json:ro
+    depends_on: [bridge-db]
+
+  bridge-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: schemabridge
+    volumes:
+      - schemabridge-data:/var/lib/postgresql/data
+
+volumes:
+  schemabridge-data:
 ```
 
-- GUI: <http://localhost:5173>
-- Admin API: <http://localhost:4000>
-- Runtime proxy: <http://localhost:8080>
+Open <http://localhost:4000>, create a binding, then send traffic to `http://localhost:8080/<your-path>`.
 
-Demo profile (adds two example upstreams + a pre-seeded `POST /customers` binding):
+### Environment
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | — (required) | Postgres connection string |
+| `PORT` | `4000` | Admin API + GUI port |
+| `PROXY_PORT` | `8080` | Runtime proxy port |
+| `CORS_ORIGIN` | `*` | CORS allow-list for the admin API |
+| `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings to load on first boot |
+
+## Try it locally (with built-in demo)
+
+The repo includes a `demo` compose profile with two stub upstream services and a pre-seeded `POST /customers` binding:
 
 ```bash
 docker compose --profile demo up --build
 ```
 
-Then send a v1-shaped payload through the proxy:
+- GUI + Admin: <http://localhost:4000>
+- Runtime proxy: <http://localhost:8080>
+
+Send a v1-shaped payload through the proxy:
 
 ```bash
 curl -X POST http://localhost:8080/customers \
