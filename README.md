@@ -36,26 +36,30 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:latest
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.0
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
     environment:
-      DATABASE_URL: postgres://app:app@bridge-db:5432/schemabridge
-      # Optional: pre-seed schemas, mappings, and bindings on first boot
+      DATABASE_URL: postgres://app:${BRIDGE_DB_PASSWORD:?set in .env}@bridge-db:5432/schemabridge
+      ADMIN_API_KEY: ${BRIDGE_ADMIN_KEY:?set in .env}
+      PROXY_REQUIRE_AUTH: "true"
+      # Optional: pre-seed schemas, mappings, bindings, apps on first boot
       # BINDINGS_SEED_FILE: /seed/bindings.json
     # volumes:
     #   - ./schemabridge-seed.json:/seed/bindings.json:ro
+    restart: on-failure
     depends_on: [bridge-db]
 
   bridge-db:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
+      POSTGRES_PASSWORD: ${BRIDGE_DB_PASSWORD:?set in .env}
       POSTGRES_DB: schemabridge
     volumes:
       - schemabridge-data:/var/lib/postgresql/data
+    restart: on-failure
 
 volumes:
   schemabridge-data:
@@ -74,6 +78,20 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 | `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings/apps to load on first boot |
 | `PROXY_REQUIRE_AUTH` | `false` | When `true`, the proxy rejects requests without a valid `Authorization: Bearer <key>` belonging to a registered app |
 | `ADMIN_API_KEY` | unset | When set, the admin API/GUI require `Authorization: Bearer <key>`. Leave unset for local dev; set it in any deployed environment. |
+
+### Production checklist
+
+Before pointing real traffic at the bridge:
+
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.0`), not `:latest`.
+- [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
+- [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
+- [ ] Set a real Postgres password — don't ship the demo `app/app` credentials.
+- [ ] Mount a persistent volume on the Postgres data directory so mappings survive container recreate.
+- [ ] Put the bridge behind a TLS-terminating reverse proxy (nginx/Caddy/Traefik). The bridge itself only speaks HTTP.
+- [ ] Decide retention for `ProxyRequestLog` — the table grows unbounded; add a cron to delete rows older than your needs.
+
+The bridge logs a warning at startup if `PROXY_REQUIRE_AUTH` or `ADMIN_API_KEY` are unset while `NODE_ENV=production`.
 
 ### Authorizing services
 

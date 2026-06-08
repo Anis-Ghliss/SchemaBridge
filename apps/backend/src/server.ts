@@ -149,6 +149,15 @@ if (seedFile) {
   await runSeed(seedFile);
 }
 
+if (process.env.NODE_ENV === "production") {
+  if (!requireAuth) {
+    console.warn("[bridge] WARNING: PROXY_REQUIRE_AUTH is not set to true. The proxy port is open to anyone who can reach it. Set PROXY_REQUIRE_AUTH=true and register apps in the Apps tab before exposing this bridge.");
+  }
+  if (!adminApiKey) {
+    console.warn("[bridge] WARNING: ADMIN_API_KEY is unset. The admin API and GUI are open to anyone who can reach them. Set ADMIN_API_KEY before deploying.");
+  }
+}
+
 const proxyBundle = await createProxyApp({ prisma, corsOrigin, requireAuth });
 const adminApp = createApp({ prisma, corsOrigin, frontendDist, adminApiKey, onBindingsChanged: () => proxyBundle.proxyService.reload() });
 
