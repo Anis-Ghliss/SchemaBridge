@@ -10,24 +10,6 @@ import {
   ProxyBindingMethodSchema
 } from "@schemabridge/shared-types";
 
-const adminPort = Number(process.env.PORT ?? 4000);
-const proxyPort = Number(process.env.PROXY_PORT ?? 8080);
-const host = process.env.HOST ?? "0.0.0.0";
-const corsOrigin = process.env.CORS_ORIGIN;
-const seedFile = process.env.BINDINGS_SEED_FILE;
-
-if (seedFile) {
-  await runSeed(seedFile);
-}
-
-const proxyBundle = await createProxyApp({ prisma, corsOrigin });
-const adminApp = createApp({ prisma, corsOrigin, onBindingsChanged: () => proxyBundle.proxyService.reload() });
-
-await Promise.all([
-  adminApp.listen({ port: adminPort, host }),
-  proxyBundle.app.listen({ port: proxyPort, host })
-]);
-
 const SeedFileSchema = z.object({
   schemas: z.array(CreateSchemaRequestSchema).optional(),
   mappings: z
@@ -117,3 +99,20 @@ async function runSeed(path: string): Promise<void> {
   }
 }
 
+const adminPort = Number(process.env.PORT ?? 4000);
+const proxyPort = Number(process.env.PROXY_PORT ?? 8080);
+const host = process.env.HOST ?? "0.0.0.0";
+const corsOrigin = process.env.CORS_ORIGIN;
+const seedFile = process.env.BINDINGS_SEED_FILE;
+
+if (seedFile) {
+  await runSeed(seedFile);
+}
+
+const proxyBundle = await createProxyApp({ prisma, corsOrigin });
+const adminApp = createApp({ prisma, corsOrigin, onBindingsChanged: () => proxyBundle.proxyService.reload() });
+
+await Promise.all([
+  adminApp.listen({ port: adminPort, host }),
+  proxyBundle.app.listen({ port: proxyPort, host })
+]);
