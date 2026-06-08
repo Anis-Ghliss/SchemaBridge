@@ -6,7 +6,7 @@ import { useAppStore } from "../store";
 import { sampleSource, sampleTarget } from "../lib/samples";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { Textarea } from "../components/ui/input";
+import { JsonEditor } from "../components/JsonEditor";
 import { SchemaInput } from "../components/SchemaInput";
 import { SchemaTree } from "../components/SchemaTree";
 import { MappingCanvas } from "../components/MappingCanvas";
@@ -122,7 +122,7 @@ export function DesignView() {
               <Play className="h-4 w-4" /> Run transform
             </Button>
           </div>
-          <Textarea value={payload} onChange={(event) => setPayload(event.target.value)} />
+          <JsonEditor value={payload} onChange={setPayload} label="Sample input" minHeight="220px" maxHeight="320px" />
         </Card>
         <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">

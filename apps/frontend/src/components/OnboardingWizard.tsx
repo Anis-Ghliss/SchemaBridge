@@ -7,7 +7,8 @@ import { sampleSource, sampleTarget } from "../lib/samples";
 import { suggestMappings } from "../lib/suggestMappings";
 import { useAppStore } from "../store";
 import { Button } from "./ui/button";
-import { Input, Textarea } from "./ui/input";
+import { Input } from "./ui/input";
+import { JsonEditor } from "./JsonEditor";
 import { cn } from "../lib/utils";
 
 const STEPS = [
@@ -243,15 +244,13 @@ function SchemaStep({ heading, body, draft, setDraft, sample, role }: SchemaStep
         <Input value={draft.name} onChange={(event) => update(event.target.value, draft.text)} placeholder={role === "source" ? "Service A — current payload" : "Service B — expected payload"} />
       </label>
 
-      <label className="flex flex-col gap-1.5 text-xs">
+      <div className="flex flex-col gap-1.5 text-xs">
         <span className="flex items-center justify-between font-medium text-slate-600">
           Example payload (JSON)
           <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={loadSample}>Use sample payload</button>
         </span>
-        <Textarea value={draft.text} onChange={(event) => update(draft.name, event.target.value)} rows={10} />
-      </label>
-
-      {draft.error && <p className="text-xs text-red-600">{draft.error}</p>}
+        <JsonEditor value={draft.text} onChange={(next) => update(draft.name, next)} label={role === "source" ? "Old shape" : "New shape"} minHeight="240px" maxHeight="320px" />
+      </div>
     </div>
   );
 }

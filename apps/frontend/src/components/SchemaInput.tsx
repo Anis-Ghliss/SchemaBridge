@@ -4,7 +4,8 @@ import { FileJson, Upload } from "lucide-react";
 import { useState } from "react";
 import { sampleSource, sampleTarget } from "../lib/samples";
 import { Button } from "./ui/button";
-import { Input, Textarea } from "./ui/input";
+import { Input } from "./ui/input";
+import { JsonEditor } from "./JsonEditor";
 
 interface Props {
   readonly label: string;
@@ -17,17 +18,12 @@ interface Props {
 export function SchemaInput({ label, sample, initialName, initialContent, onValidJson }: Props) {
   const [name, setName] = useState(initialName ?? "");
   const [text, setText] = useState(() => (initialContent !== undefined ? JSON.stringify(initialContent, null, 2) : "{}"));
-  const [error, setError] = useState<string>();
 
   function applyText(nextText: string, nextName = name.trim() || label) {
     setText(nextText);
     setName(nextName);
     const parsed = parseJsonText(nextText);
-    if (parsed.error || parsed.value === undefined) {
-      setError(parsed.error ?? "Invalid JSON");
-      return;
-    }
-    setError(undefined);
+    if (parsed.error || parsed.value === undefined) return;
     onValidJson({ name: nextName, content: parsed.value });
   }
 
@@ -47,8 +43,7 @@ export function SchemaInput({ label, sample, initialName, initialContent, onVali
           <input className="hidden" type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readFile(event.target.files[0])} />
         </label>
       </div>
-      <Textarea value={text} onChange={(event) => applyText(event.target.value)} aria-label={`${label} JSON`} />
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      <JsonEditor value={text} onChange={(next) => applyText(next)} label={label} ariaLabel={`${label} JSON`} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { PROXY_URL, probeProxy, type ProxyProbeResult } from "../lib/api";
 import { useAppStore } from "../store";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Textarea } from "../components/ui/input";
+import { JsonEditor } from "../components/JsonEditor";
 import { EmptyState } from "../components/EmptyState";
 
 const DEFAULT_PAYLOAD = JSON.stringify({ customerName: "Ada", customerEmail: "ada@example.com" }, null, 2);
@@ -79,10 +79,10 @@ export function TryView() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1.5 text-xs">
+          <div className="flex flex-col gap-1.5 text-xs">
             <span className="font-medium text-slate-600">Payload (JSON)</span>
-            <Textarea value={payload} onChange={(event) => setPayload(event.target.value)} />
-          </label>
+            <JsonEditor value={payload} onChange={setPayload} label="Request body" minHeight="180px" maxHeight="280px" />
+          </div>
           <Button onClick={() => void run()} disabled={!selected || running}>
             <Send className="h-4 w-4" /> {running ? "Sending…" : "Send through proxy"}
           </Button>
