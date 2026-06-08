@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, GitBranch, Plus, RotateCcw, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, GitBranch, Plus, RotateCcw, Save, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { parseSchema } from "@schemabridge/schema-parser";
 import { useAppStore } from "../store";
@@ -169,10 +169,14 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
   const { mappings, schemas, bindings, activeMapping, rules, selectMapping, selectBinding, setView, setRules, setActiveMapping, saveVersion, restoreVersion } = useAppStore();
   const mapping = mappings.find((item) => item.id === mappingId);
   const [selected, setSelected] = useState<string>();
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (mapping && activeMapping?.id !== mapping.id) setActiveMapping(mapping.id);
   }, [mapping, activeMapping, setActiveMapping]);
+
+  const persistedRules = useMemo(() => mapping?.versions.find((version) => version.version === mapping.currentVersion)?.rules ?? [], [mapping]);
+  const isDirty = useMemo(() => !rulesEqual(rules, persistedRules), [rules, persistedRules]);
 
   if (!mapping) return null;
   const source = schemas.find((s) => s.id === mapping.sourceSchemaId);
@@ -187,6 +191,15 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
     setRules(suggestMappings(sourceFields, targetFields));
   }
 
+  async function save() {
+    setSaving(true);
+    try {
+      await saveVersion();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <button type="button" onClick={() => selectMapping(undefined)} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
@@ -194,16 +207,27 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{mapping.name}</h2>
-          <p className="text-xs text-slate-500">{source.name} <span className="text-slate-400">→</span> {target.name}</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{mapping.name}</h2>
+            <p className="text-xs text-slate-500">{source.name} <span className="text-slate-400">→</span> {target.name}</p>
+          </div>
+          {isDirty ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+              Unsaved changes
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+              <Check className="h-3 w-3" /> Saved · v{mapping.currentVersion}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={suggest}>
             <Sparkles className="h-3.5 w-3.5" /> Suggest by name
           </Button>
-          <Button size="sm" onClick={() => void saveVersion()}>
-            New version
+          <Button size="sm" onClick={() => void save()} disabled={!isDirty || saving}>
+            <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save mapping"}
           </Button>
         </div>
       </div>
@@ -263,3 +287,11 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
   );
 }
 
+function rulesEqual(a: readonly { readonly sourcePath: string; readonly targetPath: string; readonly defaultValue?: unknown; readonly transform?: unknown }[], b: readonly { readonly sourcePath: string; readonly targetPath: string; readonly defaultValue?: unknown; readonly transform?: unknown }[]): boolean {
+  if (a.length !== b.length) return false;
+  const normalize = (rules: typeof a) => rules
+    .map((rule) => JSON.stringify({ s: rule.sourcePath, t: rule.targetPath, d: rule.defaultValue ?? null, x: rule.transform ?? null }))
+    .sort()
+    .join("|");
+  return normalize(a) === normalize(b);
+}
