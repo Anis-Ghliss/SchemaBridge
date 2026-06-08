@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.1 — 2026-06-08
+
+### Fixed
+- Published image is now multi-arch (`linux/amd64` + `linux/arm64`), so Apple Silicon hosts can pull and run it. The v0.1.0 image was amd64-only.
+
 ## v0.1.0 — 2026-06-08
 
 First public release.
