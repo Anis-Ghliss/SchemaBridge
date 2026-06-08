@@ -9,12 +9,14 @@ import { Input, Textarea } from "./ui/input";
 interface Props {
   readonly label: string;
   readonly sample: "source" | "target";
+  readonly initialName?: string;
+  readonly initialContent?: JsonValue;
   readonly onValidJson: (value: { readonly name: string; readonly content: JsonValue }) => void;
 }
 
-export function SchemaInput({ label, sample, onValidJson }: Props) {
-  const [name, setName] = useState("");
-  const [text, setText] = useState("{}");
+export function SchemaInput({ label, sample, initialName, initialContent, onValidJson }: Props) {
+  const [name, setName] = useState(initialName ?? "");
+  const [text, setText] = useState(() => (initialContent !== undefined ? JSON.stringify(initialContent, null, 2) : "{}"));
   const [error, setError] = useState<string>();
 
   function applyText(nextText: string, nextName = name.trim() || label) {

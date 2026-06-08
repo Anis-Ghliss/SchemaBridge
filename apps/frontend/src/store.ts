@@ -55,7 +55,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   async load() {
     const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
-    set({ schemas, mappings, bindings, activeMapping: mappings[0], rules: mappings[0]?.versions.find((version) => version.version === mappings[0]?.currentVersion)?.rules ?? [] });
+    const preferredMappingId = bindings[0]?.mappingId;
+    const activeMapping = (preferredMappingId ? mappings.find((mapping) => mapping.id === preferredMappingId) : undefined) ?? mappings[0];
+    const sourceSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.sourceSchemaId) : undefined;
+    const targetSchema = activeMapping ? schemas.find((schema) => schema.id === activeMapping.targetSchemaId) : undefined;
+    set({
+      schemas,
+      mappings,
+      bindings,
+      activeMapping,
+      sourceSchema,
+      targetSchema,
+      rules: activeMapping?.versions.find((version) => version.version === activeMapping.currentVersion)?.rules ?? []
+    });
   },
   async saveSchemaPair(source, target) {
     set({ status: "Saving schemas", error: undefined });

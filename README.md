@@ -1,6 +1,11 @@
 # SchemaBridge
 
+[![CI](https://github.com/Anis-Ghliss/SchemaBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Anis-Ghliss/SchemaBridge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Programmable mapping middleware for JSON-over-HTTP workflows.** Design payload transformations in a visual editor, then deploy them as runtime bindings — traffic hitting the bridge is reshaped in-flight and forwarded to the right upstream. Drop it anywhere JSON shapes don't agree.
+
+![Design view — mapping canvas](docs/screenshots/design.png)
 
 ## Why
 
@@ -44,6 +49,12 @@ curl -X POST http://localhost:8080/customers \
 ```
 
 The bridge reshapes the body into the v2 layout (including ISO-date normalization), forwards to the upstream, then maps the response back to v1 shape before returning it to you.
+
+## Screenshots
+
+| Deploy | Try it |
+| --- | --- |
+| ![Bindings list](docs/screenshots/deploy.png) | ![Proxy probe with curl helper](docs/screenshots/try.png) |
 
 ## How it works
 

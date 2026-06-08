@@ -57,14 +57,28 @@ export function DesignView() {
             <h2 className="text-sm font-semibold">Source schema</h2>
             {sourceSchema && <span className="text-[11px] text-slate-500">Saved · {sourceSchema.name}</span>}
           </div>
-          <SchemaInput label="Source schema" sample="source" onValidJson={setSourceDraft} />
+          <SchemaInput
+            key={sourceSchema?.id ?? "source-draft"}
+            label="Source schema"
+            sample="source"
+            initialName={sourceSchema?.name}
+            initialContent={sourceSchema?.content}
+            onValidJson={setSourceDraft}
+          />
         </Card>
         <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">Target schema</h2>
             {targetSchema && <span className="text-[11px] text-slate-500">Saved · {targetSchema.name}</span>}
           </div>
-          <SchemaInput label="Target schema" sample="target" onValidJson={setTargetDraft} />
+          <SchemaInput
+            key={targetSchema?.id ?? "target-draft"}
+            label="Target schema"
+            sample="target"
+            initialName={targetSchema?.name}
+            initialContent={targetSchema?.content}
+            onValidJson={setTargetDraft}
+          />
         </Card>
       </section>
 

@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/node_modules/**", "apps/backend/prisma/generated/**", "examples/**"] },
+  { ignores: ["**/dist/**", "**/node_modules/**", "apps/backend/prisma/generated/**", "examples/**", "scripts/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

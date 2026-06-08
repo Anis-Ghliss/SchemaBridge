@@ -14,12 +14,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: schema-bridge/package-lock.json
       - run: npm ci
-        working-directory: schema-bridge
+      - run: npm run db:generate
       - run: npm run lint
-        working-directory: schema-bridge
       - run: npm run test
-        working-directory: schema-bridge
       - run: npm run build
-        working-directory: schema-bridge
