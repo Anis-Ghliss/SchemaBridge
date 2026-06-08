@@ -4,6 +4,7 @@ import type {
   CreateSchemaRequest,
   MappingDocument,
   ProxyBinding,
+  ProxyRequestLog,
   SchemaDocument,
   TransformRequest,
   TransformResult,
@@ -70,6 +71,14 @@ export async function updateBinding(id: string, input: UpdateProxyBindingRequest
 export async function deleteBinding(id: string): Promise<void> {
   const response = await fetch(`${API_URL}/bindings/${id}`, { method: "DELETE" });
   if (!response.ok) throw new Error(await response.text());
+}
+
+export async function listProxyRequests(options: { readonly limit?: number; readonly since?: string } = {}): Promise<readonly ProxyRequestLog[]> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.since) params.set("since", options.since);
+  const suffix = params.toString();
+  return request(`/proxy/requests${suffix ? `?${suffix}` : ""}`);
 }
 
 export interface ProxyProbeResult {

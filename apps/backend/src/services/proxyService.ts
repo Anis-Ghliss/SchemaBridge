@@ -12,10 +12,17 @@ export interface ProxyRequest {
   readonly body: unknown;
 }
 
+export interface ProxyTrace {
+  readonly upstreamUrl?: string;
+  readonly transformedRequest?: unknown;
+  readonly errors: readonly string[];
+}
+
 export interface ProxyResponse {
   readonly statusCode: number;
   readonly headers: Record<string, string | string[] | undefined>;
   readonly body: unknown;
+  readonly trace: ProxyTrace;
 }
 
 interface CompiledBinding {
@@ -69,7 +76,12 @@ export class ProxyService {
 
     const transformedBody = transformBody(req.body, requestRules, "request");
     if (!transformedBody.ok) {
-      return { statusCode: 502, headers: { "content-type": "application/json" }, body: { stage: "request-mapping", errors: transformedBody.errors } };
+      return {
+        statusCode: 502,
+        headers: { "content-type": "application/json" },
+        body: { stage: "request-mapping", errors: transformedBody.errors },
+        trace: { errors: transformedBody.errors.map((message) => `request-mapping: ${message}`) }
+      };
     }
 
     const forwardedHeaders = pickHeaders(req.headers, binding.forwardHeaders);
@@ -85,7 +97,12 @@ export class ProxyService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown upstream error";
-      return { statusCode: 502, headers: { "content-type": "application/json" }, body: { stage: "upstream", error: message } };
+      return {
+        statusCode: 502,
+        headers: { "content-type": "application/json" },
+        body: { stage: "upstream", error: message },
+        trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: [`upstream: ${message}`] }
+      };
     }
 
     const responseHeaders = stripHopByHop(upstream.headers);
@@ -96,13 +113,28 @@ export class ProxyService {
       if (parsed.ok) {
         const transformedResponse = transformBody(parsed.value, responseRules, "response");
         if (!transformedResponse.ok) {
-          return { statusCode: 502, headers: { "content-type": "application/json" }, body: { stage: "response-mapping", errors: transformedResponse.errors } };
+          return {
+            statusCode: 502,
+            headers: { "content-type": "application/json" },
+            body: { stage: "response-mapping", errors: transformedResponse.errors },
+            trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: transformedResponse.errors.map((message) => `response-mapping: ${message}`) }
+          };
         }
-        return { statusCode: upstream.statusCode, headers: { ...responseHeaders, "content-type": "application/json" }, body: transformedResponse.value };
+        return {
+          statusCode: upstream.statusCode,
+          headers: { ...responseHeaders, "content-type": "application/json" },
+          body: transformedResponse.value,
+          trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: [] }
+        };
       }
     }
 
-    return { statusCode: upstream.statusCode, headers: responseHeaders, body: upstreamBody };
+    return {
+      statusCode: upstream.statusCode,
+      headers: responseHeaders,
+      body: upstreamBody,
+      trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: [] }
+    };
   }
 }
 

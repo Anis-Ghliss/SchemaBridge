@@ -134,3 +134,18 @@ export type CreateProxyBindingRequest = z.infer<typeof CreateProxyBindingRequest
 
 export const UpdateProxyBindingRequestSchema = CreateProxyBindingRequestSchema.partial();
 export type UpdateProxyBindingRequest = z.infer<typeof UpdateProxyBindingRequestSchema>;
+
+export const ProxyRequestLogSchema = z.object({
+  id: z.string().uuid(),
+  bindingId: z.string().uuid().nullable(),
+  method: z.string(),
+  path: z.string(),
+  statusCode: z.number().int(),
+  durationMs: z.number().int().nonnegative(),
+  upstreamUrl: z.string().nullable(),
+  transformedRequest: JsonValueSchema.nullable(),
+  responseBody: JsonValueSchema.nullable(),
+  errors: z.array(z.string()),
+  createdAt: z.string().datetime()
+});
+export type ProxyRequestLog = z.infer<typeof ProxyRequestLogSchema>;

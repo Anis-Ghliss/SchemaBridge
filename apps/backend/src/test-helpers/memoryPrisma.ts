@@ -40,6 +40,20 @@ interface BindingRow {
   updatedAt: Date;
 }
 
+interface ProxyRequestLogRow {
+  id: string;
+  bindingId: string | null;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  upstreamUrl: string | null;
+  transformedRequest: unknown;
+  responseBody: unknown;
+  errors: unknown;
+  createdAt: Date;
+}
+
 type WhereId = { where: { id: string } };
 
 export function createMemoryPrisma() {
@@ -47,6 +61,7 @@ export function createMemoryPrisma() {
   const mappings: MappingRow[] = [];
   const versions: MappingVersionRow[] = [];
   const bindings: BindingRow[] = [];
+  const proxyLogs: ProxyRequestLogRow[] = [];
 
   function getMappingWithVersions(id: string) {
     const mapping = mappings.find((m) => m.id === id);
@@ -144,6 +159,23 @@ export function createMemoryPrisma() {
         const index = bindings.findIndex((b) => b.id === where.id);
         if (index < 0) throw new Error("not found");
         return bindings.splice(index, 1)[0];
+      }
+    },
+    proxyRequestLog: {
+      async create({ data }: { data: Omit<ProxyRequestLogRow, "id" | "createdAt"> }) {
+        const row: ProxyRequestLogRow = { ...data, id: randomUUID(), createdAt: new Date() };
+        proxyLogs.push(row);
+        return row;
+      },
+      async findMany({ where, take }: { where?: { createdAt?: { gt: Date } }; orderBy?: unknown; take?: number } = {}) {
+        let rows = [...proxyLogs];
+        if (where?.createdAt?.gt) rows = rows.filter((row) => row.createdAt > where.createdAt!.gt);
+        rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        if (typeof take === "number") rows = rows.slice(0, take);
+        return rows;
+      },
+      async findUnique({ where }: WhereId) {
+        return proxyLogs.find((row) => row.id === where.id) ?? null;
       }
     },
     seed: {

@@ -144,6 +144,18 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     await onBindingsChanged?.();
     return reply.code(204).send();
   });
+
+  app.get("/proxy/requests", async (request, reply) => {
+    const query = parseBody(
+      z.object({
+        limit: z.coerce.number().int().positive().max(200).optional(),
+        since: z.string().uuid().optional()
+      }),
+      request.query
+    );
+    if (!query.success) return reply.code(400).send({ errors: query.error });
+    return repository.listProxyRequests({ limit: query.data.limit, since: query.data.since });
+  });
 }
 
 function parseBody<T>(schema: z.ZodType<T>, value: unknown): { readonly success: true; readonly data: T } | { readonly success: false; readonly error: readonly string[] } {

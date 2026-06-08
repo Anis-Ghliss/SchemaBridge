@@ -8,12 +8,28 @@ import type {
   MappingRule,
   ProxyBinding,
   ProxyBindingMethod,
+  ProxyRequestLog,
   SchemaDocument,
   UpdateProxyBindingRequest
 } from "@schemabridge/shared-types";
 
 type MappingRecord = Prisma.MappingGetPayload<{ include: { versions: true } }>;
 type ProxyBindingRecord = Prisma.ProxyBindingGetPayload<Record<string, never>>;
+type ProxyRequestLogRecord = Prisma.ProxyRequestLogGetPayload<Record<string, never>>;
+
+const MAX_LOGGED_BODY_BYTES = 16_384;
+
+export interface RecordProxyRequestInput {
+  readonly bindingId: string | null;
+  readonly method: string;
+  readonly path: string;
+  readonly statusCode: number;
+  readonly durationMs: number;
+  readonly upstreamUrl?: string | null;
+  readonly transformedRequest?: unknown;
+  readonly responseBody?: unknown;
+  readonly errors: readonly string[];
+}
 
 const DEFAULT_FORWARD_HEADERS: readonly string[] = ["content-type", "accept", "authorization"];
 
@@ -181,6 +197,37 @@ export class SchemaBridgeRepository {
     return true;
   }
 
+  public async recordProxyRequest(input: RecordProxyRequestInput): Promise<void> {
+    await this.prisma.proxyRequestLog.create({
+      data: {
+        bindingId: input.bindingId,
+        method: input.method,
+        path: input.path,
+        statusCode: input.statusCode,
+        durationMs: input.durationMs,
+        upstreamUrl: input.upstreamUrl ?? null,
+        transformedRequest: truncateJson(input.transformedRequest),
+        responseBody: truncateJson(input.responseBody),
+        errors: input.errors as unknown as Prisma.InputJsonValue
+      }
+    });
+  }
+
+  public async listProxyRequests(options: { readonly limit?: number; readonly since?: string } = {}): Promise<readonly ProxyRequestLog[]> {
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    let where: Prisma.ProxyRequestLogWhereInput | undefined;
+    if (options.since) {
+      const sinceRecord = await this.prisma.proxyRequestLog.findUnique({ where: { id: options.since } });
+      if (sinceRecord) where = { createdAt: { gt: sinceRecord.createdAt } };
+    }
+    const records = await this.prisma.proxyRequestLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+    return records.map(toProxyRequestLog);
+  }
+
   public async listActiveBindings(): Promise<readonly ActiveBinding[]> {
     const records = await this.prisma.proxyBinding.findMany({
       where: { enabled: true },
@@ -202,6 +249,29 @@ export class SchemaBridgeRepository {
 function rulesForCurrentVersion(mapping: MappingRecord): readonly MappingRule[] {
   const current = mapping.versions.find((version) => version.version === mapping.currentVersion);
   return (current?.rules ?? []) as unknown as MappingRule[];
+}
+
+function truncateJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  if (value === undefined || value === null) return Prisma.JsonNull;
+  const serialized = JSON.stringify(value);
+  if (serialized.length <= MAX_LOGGED_BODY_BYTES) return value as Prisma.InputJsonValue;
+  return { truncated: true, bytes: serialized.length, preview: serialized.slice(0, MAX_LOGGED_BODY_BYTES) };
+}
+
+function toProxyRequestLog(record: ProxyRequestLogRecord): ProxyRequestLog {
+  return {
+    id: record.id,
+    bindingId: record.bindingId,
+    method: record.method,
+    path: record.path,
+    statusCode: record.statusCode,
+    durationMs: record.durationMs,
+    upstreamUrl: record.upstreamUrl,
+    transformedRequest: (record.transformedRequest ?? null) as ProxyRequestLog["transformedRequest"],
+    responseBody: (record.responseBody ?? null) as ProxyRequestLog["responseBody"],
+    errors: (record.errors ?? []) as unknown as string[],
+    createdAt: record.createdAt.toISOString()
+  };
 }
 
 function toProxyBinding(record: ProxyBindingRecord): ProxyBinding {

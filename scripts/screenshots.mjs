@@ -8,7 +8,7 @@
 import { chromium } from "playwright";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const BASE = process.env.BASE_URL ?? "http://localhost:5173";
+const BASE = process.env.BASE_URL ?? "http://localhost:4000";
 const OUT = process.env.OUT_DIR ?? "docs/screenshots";
 
 const browser = await chromium.launch();
@@ -34,6 +34,11 @@ await shot("deploy", async () => {
 
 await shot("try", async () => {
   await page.click("text=Try it");
+});
+
+await shot("live", async () => {
+  await page.click("text=Live");
+  await sleep(2500);
 });
 
 await browser.close();

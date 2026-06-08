@@ -93,6 +93,10 @@ The bridge reshapes the body into the v2 layout (including ISO-date normalizatio
 | --- | --- |
 | ![Bindings list](docs/screenshots/deploy.png) | ![Proxy probe with curl helper](docs/screenshots/try.png) |
 
+![Live traffic tail](docs/screenshots/live.png)
+
+The **Live** tab tails every request the proxy handles: method, path, status, duration, the binding it matched, and the transformed request/response bodies are one click away. Unmatched routes show up too — handy for catching missing bindings.
+
 ## How it works
 
 ```

@@ -1,9 +1,10 @@
-import { Activity, GitBranch, Layers3, Send, Sparkles } from "lucide-react";
+import { Activity, GitBranch, Layers3, Radio, Send, Sparkles } from "lucide-react";
 import { useEffect } from "react";
 import { useAppStore, type AppView } from "../store";
 import { DesignView } from "../pages/DesignView";
 import { DeployView } from "../pages/DeployView";
 import { TryView } from "../pages/TryView";
+import { LiveView } from "../pages/LiveView";
 import { cn } from "../lib/utils";
 
 interface NavItem {
@@ -16,7 +17,8 @@ interface NavItem {
 const NAV: readonly NavItem[] = [
   { id: "design", label: "Design", hint: "Schemas + mapping rules", icon: Layers3 },
   { id: "deploy", label: "Deploy", hint: "Bindings + upstreams", icon: GitBranch },
-  { id: "try", label: "Try it", hint: "Send through the bridge", icon: Send }
+  { id: "try", label: "Try it", hint: "Send through the bridge", icon: Send },
+  { id: "live", label: "Live", hint: "Tail proxied traffic", icon: Radio }
 ];
 
 export function AppShell() {
@@ -91,6 +93,7 @@ export function AppShell() {
           {view === "design" && <DesignView />}
           {view === "deploy" && <DeployView />}
           {view === "try" && <TryView />}
+          {view === "live" && <LiveView />}
         </main>
       </div>
     </div>

@@ -29,6 +29,7 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
     method: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
     url: "/*",
     handler: async (request, reply) => {
+      const startedAt = Date.now();
       const fullUrl = request.url;
       const queryIndex = fullUrl.indexOf("?");
       const path = queryIndex >= 0 ? fullUrl.slice(0, queryIndex) : fullUrl;
@@ -36,6 +37,15 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
 
       const matched = proxyService.matchBinding(request.method, path);
       if (!matched) {
+        const durationMs = Date.now() - startedAt;
+        recordSafely(repository, {
+          bindingId: null,
+          method: request.method,
+          path,
+          statusCode: 404,
+          durationMs,
+          errors: [`no binding for ${request.method} ${path}`]
+        });
         return reply.code(404).send({ error: `No proxy binding for ${request.method} ${path}` });
       }
 
@@ -45,6 +55,19 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
         query,
         headers: request.headers,
         body: request.body
+      });
+
+      const durationMs = Date.now() - startedAt;
+      recordSafely(repository, {
+        bindingId: matched.active.binding.id,
+        method: request.method,
+        path,
+        statusCode: result.statusCode,
+        durationMs,
+        upstreamUrl: result.trace.upstreamUrl,
+        transformedRequest: result.trace.transformedRequest,
+        responseBody: result.body,
+        errors: result.trace.errors
       });
 
       reply.code(result.statusCode);
@@ -57,4 +80,11 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
   });
 
   return { app, proxyService };
+}
+
+function recordSafely(repository: SchemaBridgeRepository, input: Parameters<SchemaBridgeRepository["recordProxyRequest"]>[0]): void {
+  void repository.recordProxyRequest(input).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(`[proxy] failed to record request: ${message}`);
+  });
 }

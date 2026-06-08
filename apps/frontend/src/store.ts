@@ -15,7 +15,7 @@ import {
 } from "./lib/api";
 import { sampleSource, sampleTarget } from "./lib/samples";
 
-export type AppView = "design" | "deploy" | "try";
+export type AppView = "design" | "deploy" | "try" | "live";
 
 interface AppState {
   readonly view: AppView;
