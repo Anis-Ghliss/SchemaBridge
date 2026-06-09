@@ -147,6 +147,20 @@ export const DriftEventSchema = z.object({
 });
 export type DriftEvent = z.infer<typeof DriftEventSchema>;
 
+// Wire contract between a self-hosted data-plane instance and the control
+// plane. The data plane keeps running the proxy in the customer's infra and
+// periodically reports a *snapshot* of its current drift state (aggregated, so
+// the ingest side reconciles idempotently by bindingId/stage/kind/path rather
+// than treating each report as an append-only event). This is the schema any
+// control-plane `POST /ingest/drift` endpoint must accept.
+export const DriftReportSchema = z.object({
+  instanceId: z.string().min(1),
+  bridgeVersion: z.string(),
+  reportedAt: z.string().datetime(),
+  events: z.array(DriftEventSchema)
+});
+export type DriftReport = z.infer<typeof DriftReportSchema>;
+
 export const ProxyBindingMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "*"]);
 export type ProxyBindingMethod = z.infer<typeof ProxyBindingMethodSchema>;
 

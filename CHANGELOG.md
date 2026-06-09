@@ -6,6 +6,7 @@
 - **Contract drift detection.** The proxy now passively compares inbound, transformed, upstream, and response payloads against each binding's declared schemas and records divergences — *added* fields (an upstream introduced a key), *missing* fields, and *type changes* — aggregated per binding/stage/path with first/last-seen timestamps and a hit count. Detection is fire-and-forget (never adds latency or blocks traffic) and runs regardless of `validationMode`. Tune coverage with `DRIFT_SAMPLE_RATE`.
 - New admin endpoints: `GET /drift` (list, filter by `bindingId`), `DELETE /drift/:id` (acknowledge), `DELETE /drift` (clear).
 - New **Drift** view in the GUI: a filterable, auto-refreshing list of drift signals (by binding and kind) with per-row acknowledge and bulk clear, linking back to the originating binding.
+- **Control-plane reporting (hybrid topology).** When `CONTROL_PLANE_URL` is set, the data-plane instance periodically pushes a snapshot of its drift state to `<url>/ingest/drift` (authenticated with `CONTROL_PLANE_TOKEN`, identified by `BRIDGE_INSTANCE_ID`). Reporting is resilient — a control plane being unreachable never affects proxied traffic — and the proxy stays entirely in the customer's infra. Standalone/OSS deployments are unaffected unless they opt in. The `DriftReport` wire contract is defined in `@schemabridge/shared-types`.
 
 ## v0.1.6 — 2026-06-09
 

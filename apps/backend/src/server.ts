@@ -4,6 +4,8 @@ import { createProxyApp } from "./proxyApp.js";
 import { SchemaBridgeRepository } from "./services/repository.js";
 import { defaultEgressPolicy, type EgressPolicy } from "./services/egressGuard.js";
 import { evaluateStartupSecurity } from "./services/startupGuard.js";
+import { ControlPlaneReporter } from "./services/controlPlaneReporter.js";
+import { hostname } from "node:os";
 
 const adminPort = Number(process.env.PORT ?? 4000);
 const proxyPort = Number(process.env.PROXY_PORT ?? 8080);
@@ -71,6 +73,7 @@ const adminApp = createApp({
 });
 
 const retentionInterval = requestLogRetentionDays ? startProxyRequestLogRetention(requestLogRetentionDays) : undefined;
+const reporter = startControlPlaneReporter();
 
 await Promise.all([
   adminApp.listen({ port: adminPort, host }),
@@ -84,6 +87,7 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`[bridge] ${signal} received, closing…`);
   try {
     if (retentionInterval) clearInterval(retentionInterval);
+    reporter?.stop();
     await Promise.all([adminApp.close(), proxyBundle.app.close()]);
     await prisma.$disconnect();
     process.exit(0);
@@ -95,6 +99,21 @@ async function shutdown(signal: string): Promise<void> {
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+
+function startControlPlaneReporter(): ControlPlaneReporter | undefined {
+  const url = process.env.CONTROL_PLANE_URL?.trim();
+  if (!url) return undefined; // OSS single-node mode: no phone-home unless configured.
+  const reporter = new ControlPlaneReporter(new SchemaBridgeRepository(prisma), {
+    url,
+    token: process.env.CONTROL_PLANE_TOKEN?.trim() || undefined,
+    instanceId: process.env.BRIDGE_INSTANCE_ID?.trim() || hostname(),
+    bridgeVersion: process.env.BRIDGE_VERSION?.trim() || "unknown",
+    intervalMs: parsePositiveInteger(process.env.CONTROL_PLANE_REPORT_INTERVAL_MS, 60_000, "CONTROL_PLANE_REPORT_INTERVAL_MS")
+  });
+  reporter.start();
+  console.log(`[control-plane] reporting drift to ${url} as instance ${process.env.BRIDGE_INSTANCE_ID?.trim() || hostname()}`);
+  return reporter;
+}
 
 function parseRate(value: string | undefined, fallback: number): number {
   if (!value) return fallback;

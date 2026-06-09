@@ -89,6 +89,11 @@ New users should follow [Getting Started](docs/getting-started.md) for a blank-d
 | `PROXY_LOG_BODIES` | `true` | When `false`, request/response bodies are not persisted to `ProxyRequestLog` (metadata only). Set `false` when traffic carries PII/secrets. |
 | `BRIDGE_ALLOW_INSECURE` | `false` | When `true`, allows the bridge to start in production even if `ADMIN_API_KEY`/`PROXY_REQUIRE_AUTH` are unset. Otherwise such a config is fatal in production. |
 | `DRIFT_SAMPLE_RATE` | `1` | Fraction (0–1) of proxied requests passively checked for contract drift against each binding's schemas. Set lower to reduce overhead on high-traffic bridges; `0` disables drift detection. |
+| `CONTROL_PLANE_URL` | unset | When set, this instance periodically reports a snapshot of its drift state to `<url>/ingest/drift`. Leave unset for standalone/OSS mode (no phone-home). |
+| `CONTROL_PLANE_TOKEN` | unset | Bearer token identifying this instance to the control plane. |
+| `BRIDGE_INSTANCE_ID` | hostname | Stable identifier for this data-plane instance in control-plane reports. |
+| `CONTROL_PLANE_REPORT_INTERVAL_MS` | `60000` | How often to report drift to the control plane. |
+| `BRIDGE_VERSION` | `unknown` | Reported to the control plane for fleet visibility. |
 
 ### Production checklist
 
