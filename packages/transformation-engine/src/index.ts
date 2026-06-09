@@ -4,6 +4,10 @@ export interface TransformOptions {
   readonly includeMissingErrors?: boolean;
 }
 
+const ARRAY_WILDCARD: unique symbol = Symbol("arrayWildcard");
+
+type PathSegment = string | typeof ARRAY_WILDCARD;
+
 export function transformPayload(input: JsonValue, rules: readonly MappingRule[], options: TransformOptions = {}): TransformResult {
   if (!isRecord(input)) {
     return { status: "error", errors: ["Input payload must be a JSON object."] };
@@ -14,29 +18,34 @@ export function transformPayload(input: JsonValue, rules: readonly MappingRule[]
 
   for (const rule of rules) {
     const source = getByPath(input, rule.sourcePath);
-    const hasValue = source.found;
-    const rawValue = hasValue ? source.value : rule.defaultValue;
+    const values = source.found
+      ? source.matches
+      : rule.defaultValue !== undefined
+        ? [{ value: rule.defaultValue, indexes: [] }]
+        : [];
 
-    if (rawValue === undefined) {
+    if (values.length === 0) {
       if (options.includeMissingErrors) {
         errors.push(`Missing source path: ${rule.sourcePath}`);
       }
       continue;
     }
 
-    let value = rawValue;
-    if (rule.transform) {
-      const transformed = applyTransform(rawValue, rule.transform);
-      if (!transformed.ok) {
-        errors.push(`Rule ${rule.id} (${rule.transform}) on ${rule.sourcePath}: ${transformed.error}`);
-        continue;
+    for (const match of values) {
+      let value = match.value;
+      if (rule.transform) {
+        const transformed = applyTransform(match.value, rule.transform);
+        if (!transformed.ok) {
+          errors.push(`Rule ${rule.id} (${rule.transform}) on ${rule.sourcePath}: ${transformed.error}`);
+          continue;
+        }
+        value = transformed.value;
       }
-      value = transformed.value;
-    }
 
-    const setResult = setByPath(output, rule.targetPath, value);
-    if (!setResult.ok) {
-      errors.push(setResult.error);
+      const setResult = setByPath(output, rule.targetPath, value, match.indexes);
+      if (!setResult.ok) {
+        errors.push(setResult.error);
+      }
     }
   }
 
@@ -61,56 +70,159 @@ export function validateMappingRules(rules: readonly MappingRule[]): readonly st
   return errors;
 }
 
-function getByPath(input: JsonObject, path: string): { readonly found: true; readonly value: JsonValue } | { readonly found: false } {
-  const segments = path.split(".").filter(Boolean);
-  let current: JsonValue = input;
-
-  for (const segment of segments) {
-    if (Array.isArray(current)) {
-      const index = Number(segment);
-      if (!Number.isInteger(index) || index < 0 || index >= current.length) return { found: false };
-      current = current[index] as JsonValue;
-      continue;
-    }
-
-    if (!isRecord(current) || !(segment in current)) return { found: false };
-    current = current[segment] as JsonValue;
-  }
-
-  return { found: true, value: current };
+export function validateAgainstExample(value: unknown, example: JsonValue, label: string): readonly string[] {
+  const errors: string[] = [];
+  visitExample(value, example, label, errors);
+  return errors;
 }
 
-function setByPath(output: Record<string, JsonValue>, path: string, value: JsonValue): { readonly ok: true } | { readonly ok: false; readonly error: string } {
-  const segments = path.split(".").filter(Boolean);
-  if (segments.length === 0) return { ok: false, error: "Target path cannot be empty." };
+function getByPath(input: JsonObject, path: string): { readonly found: true; readonly matches: readonly { readonly value: JsonValue; readonly indexes: readonly number[] }[] } | { readonly found: false } {
+  const matches = readPath(input, parsePath(path), []);
+  return matches.length > 0 ? { found: true, matches } : { found: false };
+}
 
-  let current: Record<string, JsonValue> = output;
-  for (const [index, segment] of segments.entries()) {
-    const isLeaf = index === segments.length - 1;
-    if (isLeaf) {
-      current[segment] = value;
-      return { ok: true };
-    }
+function readPath(value: JsonValue, segments: readonly PathSegment[], indexes: readonly number[]): readonly { readonly value: JsonValue; readonly indexes: readonly number[] }[] {
+  if (segments.length === 0) return [{ value, indexes }];
+  const [segment, ...rest] = segments;
+  if (segment === undefined) return [];
 
-    const existing = current[segment];
-    if (existing === undefined) {
-      const next: Record<string, JsonValue> = {};
-      current[segment] = next;
-      current = next;
-      continue;
-    }
-
-    if (!isRecord(existing)) {
-      return { ok: false, error: `Cannot set ${path}; ${segments.slice(0, index + 1).join(".")} is not an object.` };
-    }
-    current = existing;
+  if (segment === ARRAY_WILDCARD) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item, index) => readPath(item, rest, [...indexes, index]));
   }
 
-  return { ok: true };
+  if (Array.isArray(value)) {
+    const index = Number(segment);
+    if (!Number.isInteger(index) || index < 0 || index >= value.length) return [];
+    return readPath(value[index] as JsonValue, rest, indexes);
+  }
+
+  if (!isRecord(value) || !(segment in value)) return [];
+  return readPath(value[segment] as JsonValue, rest, indexes);
+}
+
+function setByPath(output: Record<string, JsonValue>, path: string, value: JsonValue, indexes: readonly number[]): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+  const segments = parsePath(path);
+  if (segments.length === 0) return { ok: false, error: "Target path cannot be empty." };
+  return setAt(output, segments, value, indexes, 0, path);
+}
+
+function setAt(current: JsonValue, segments: readonly PathSegment[], value: JsonValue, indexes: readonly number[], wildcardCursor: number, fullPath: string): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+  const [segment, ...rest] = segments;
+  if (segment === undefined) return { ok: false, error: "Target path cannot be empty." };
+  const isLeaf = rest.length === 0;
+
+  if (segment === ARRAY_WILDCARD) {
+    if (!Array.isArray(current)) return { ok: false, error: `Cannot set ${fullPath}; expected an array.` };
+    const index = indexes[wildcardCursor];
+    if (index === undefined) return { ok: false, error: `Cannot set ${fullPath}; target array has no source index.` };
+    if (isLeaf) {
+      current[index] = value;
+      return { ok: true };
+    }
+    current[index] ??= containerFor(rest[0]);
+    return setAt(current[index] as JsonValue, rest, value, indexes, wildcardCursor + 1, fullPath);
+  }
+
+  if (Array.isArray(current)) {
+    const index = Number(segment);
+    if (!Number.isInteger(index) || index < 0) return { ok: false, error: `Cannot set ${fullPath}; ${segment} is not a valid array index.` };
+    if (isLeaf) {
+      current[index] = value;
+      return { ok: true };
+    }
+    current[index] ??= containerFor(rest[0]);
+    return setAt(current[index] as JsonValue, rest, value, indexes, wildcardCursor, fullPath);
+  }
+
+  if (!isRecord(current)) return { ok: false, error: `Cannot set ${fullPath}; target parent is not an object.` };
+  const object = current as Record<string, JsonValue>;
+  if (isLeaf) {
+    object[segment] = value;
+    return { ok: true };
+  }
+
+  const existing = object[segment];
+  if (existing === undefined) {
+    object[segment] = containerFor(rest[0]);
+  } else if (!isCompatibleContainer(existing, rest[0])) {
+    return { ok: false, error: `Cannot set ${fullPath}; ${segment} is not an ${rest[0] === ARRAY_WILDCARD ? "array" : "object"}.` };
+  }
+
+  return setAt(object[segment] as JsonValue, rest, value, indexes, wildcardCursor, fullPath);
+}
+
+function parsePath(path: string): readonly PathSegment[] {
+  const segments: PathSegment[] = [];
+  for (const segment of path.split(".").filter(Boolean)) {
+    if (segment.endsWith("[]")) {
+      const key = segment.slice(0, -2);
+      if (key) segments.push(key);
+      segments.push(ARRAY_WILDCARD);
+    } else {
+      segments.push(segment);
+    }
+  }
+  return segments;
+}
+
+function containerFor(next: PathSegment | undefined): JsonValue {
+  return next === ARRAY_WILDCARD ? [] : {};
+}
+
+function isCompatibleContainer(value: JsonValue, next: PathSegment | undefined): boolean {
+  if (next === ARRAY_WILDCARD) return Array.isArray(value);
+  return isRecord(value) || Array.isArray(value);
 }
 
 function isRecord(value: JsonValue): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function visitExample(value: unknown, example: JsonValue, path: string, errors: string[]): void {
+  if (Array.isArray(example)) {
+    if (!Array.isArray(value)) {
+      errors.push(`${path} must be an array`);
+      return;
+    }
+    if (example.length === 0 || value.length === 0) return;
+    const itemExample = example[0] as JsonValue;
+    value.forEach((item, index) => visitExample(item, itemExample, `${path}[${index}]`, errors));
+    return;
+  }
+
+  if (isRecord(example)) {
+    if (!isUnknownRecord(value)) {
+      errors.push(`${path} must be an object`);
+      return;
+    }
+    for (const [key, childExample] of Object.entries(example)) {
+      if (!(key in value)) {
+        errors.push(`${joinPath(path, key)} is required`);
+        continue;
+      }
+      visitExample(value[key], childExample as JsonValue, joinPath(path, key), errors);
+    }
+    return;
+  }
+
+  if (example === null) {
+    if (value !== null) errors.push(`${path} must be null`);
+    return;
+  }
+
+  const expectedType = typeof example;
+  if (typeof value !== expectedType) {
+    errors.push(`${path} must be ${expectedType}`);
+  }
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function joinPath(parent: string, key: string): string {
+  return parent.length > 0 ? `${parent}.${key}` : key;
 }
 
 function applyTransform(value: JsonValue, kind: MappingRuleTransform): { readonly ok: true; readonly value: JsonValue } | { readonly ok: false; readonly error: string } {

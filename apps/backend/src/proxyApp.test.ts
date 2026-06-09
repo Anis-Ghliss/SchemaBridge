@@ -11,8 +11,8 @@ const MAPPING_RESPONSE_ID = "00000000-0000-4000-8000-0000000000a2";
 const BINDING_ID = "00000000-0000-4000-8000-0000000000b1";
 
 function seedRequestMapping(prisma: MemoryPrisma): void {
-  prisma.seed.schema({ id: SCHEMA_SOURCE_ID, name: "Customer v1", content: {}, fields: [] });
-  prisma.seed.schema({ id: SCHEMA_TARGET_ID, name: "Customer v2", content: {}, fields: [] });
+  prisma.seed.schema({ id: SCHEMA_SOURCE_ID, name: "Customer v1", content: { customerName: "Ada", customerEmail: "ada@example.com" }, fields: [] });
+  prisma.seed.schema({ id: SCHEMA_TARGET_ID, name: "Customer v2", content: { customer: { name: "Ada", email: "ada@example.com" } }, fields: [] });
   prisma.seed.mapping({
     id: MAPPING_REQUEST_ID,
     name: "v1 to v2 request",
@@ -57,6 +57,28 @@ describe("proxy app", () => {
     const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
     const response = await app.inject({ method: "POST", url: "/no-such-route" });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("rejects proxy requests over the configured body limit", async () => {
+    const prisma = createMemoryPrisma();
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, bodyLimitBytes: 16 });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ value: "too-large" })
+    });
+    expect(response.statusCode).toBe(413);
+  });
+
+  it("rate limits proxy requests by client", async () => {
+    const prisma = createMemoryPrisma();
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, rateLimit: { max: 1, windowMs: 60_000 } });
+    const first = await app.inject({ method: "GET", url: "/no-such-route", remoteAddress: "203.0.113.20" });
+    const second = await app.inject({ method: "GET", url: "/no-such-route", remoteAddress: "203.0.113.20" });
+    expect(first.statusCode).toBe(404);
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toEqual({ error: "rate limit exceeded" });
   });
 
   it("transforms request and forwards to upstream", async () => {
@@ -165,6 +187,73 @@ describe("proxy app", () => {
     const response = await app.inject({ method: "GET", url: "/customers/42" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
+  });
+
+  it("rejects invalid inbound payloads when validation is strict", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "strict-customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "strict",
+      enabled: true
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      stage: "request-validation",
+      errors: ["validation: request-source.customerEmail is required"]
+    });
+  });
+
+  it("forwards and records validation errors when validation warns", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "warn-customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "warn",
+      enabled: true
+    });
+
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(202, { accepted: true }, { headers: { "content-type": "application/json" } });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada" }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(response.statusCode).toBe(202);
+    const logs = await prisma.proxyRequestLog.findMany();
+    expect(logs[0]?.incomingRequest).toEqual({ customerName: "Ada" });
+    expect(logs[0]?.errors).toEqual([
+      "validation: request-source.customerEmail is required",
+      "validation: request-target.customer.email is required"
+    ]);
   });
 
   describe("with PROXY_REQUIRE_AUTH", () => {

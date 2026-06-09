@@ -47,6 +47,47 @@ paths:
           description: Schema
         "404":
           description: Not found
+    patch:
+      summary: Update schema document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSchemaRequest"
+      responses:
+        "200":
+          description: Updated schema
+        "404":
+          description: Not found
+    delete:
+      summary: Delete schema document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cascade
+          in: query
+          required: false
+          description: Set to "true" to delete dependent mappings and delete or update affected bindings.
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Schema is still referenced
   /mappings:
     post:
       summary: Create mapping
@@ -79,6 +120,27 @@ paths:
           description: Mapping
         "404":
           description: Not found
+    delete:
+      summary: Delete mapping
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cascade
+          in: query
+          required: false
+          description: Set to "true" to delete request bindings that use this mapping and clear response-only references.
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Mapping is still referenced
   /mappings/{id}/versions:
     post:
       summary: Create mapping version
@@ -104,6 +166,33 @@ paths:
       responses:
         "200":
           description: Updated mapping
+  /mappings/{id}/versions/current:
+    patch:
+      summary: Update current mapping version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules]
+              properties:
+                rules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MappingRule"
+      responses:
+        "200":
+          description: Updated mapping without creating a new version
+        "404":
+          description: Mapping version not found
   /mappings/{id}/restore:
     post:
       summary: Restore mapping version
@@ -193,7 +282,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateProxyBindingRequest"
+              $ref: "#/components/schemas/UpdateProxyBindingRequest"
       responses:
         "200":
           description: Updated binding
@@ -213,11 +302,124 @@ paths:
           description: Deleted
         "404":
           description: Not found
+  /apps:
+    get:
+      summary: List proxy apps
+      responses:
+        "200":
+          description: Apps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProxyApp"
+    post:
+      summary: Create proxy app
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProxyAppRequest"
+      responses:
+        "200":
+          description: Created app with one-time plaintext key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyAppWithKey"
+  /apps/{id}:
+    get:
+      summary: Get proxy app
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: App
+        "404":
+          description: Not found
+    patch:
+      summary: Update proxy app
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProxyAppRequest"
+      responses:
+        "200":
+          description: Updated app
+        "404":
+          description: Not found
+    delete:
+      summary: Delete proxy app
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+  /apps/{id}/rotate:
+    post:
+      summary: Rotate proxy app key
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: App with one-time fresh plaintext key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyAppWithKey"
+        "404":
+          description: Not found
+  /proxy/requests:
+    get:
+      summary: List recent proxy request logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Proxy request logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProxyRequestLog"
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
     CreateSchemaRequest:
       type: object
       required: [name, content]
+      properties:
+        name:
+          type: string
+        content: {}
+    UpdateSchemaRequest:
+      type: object
       properties:
         name:
           type: string
@@ -275,7 +477,7 @@ components:
           type: string
         method:
           type: string
-          enum: [GET, POST, PUT, PATCH, DELETE, "*"]
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD, "*"]
         pathPattern:
           type: string
         upstreamBaseUrl:
@@ -292,5 +494,119 @@ components:
           type: array
           items:
             type: string
+        validationMode:
+          type: string
+          enum: [off, warn, strict]
+          default: off
         enabled:
           type: boolean
+    UpdateProxyBindingRequest:
+      allOf:
+        - $ref: "#/components/schemas/CreateProxyBindingRequest"
+      description: Partial proxy binding update; all fields are optional.
+    ProxyApp:
+      type: object
+      required: [id, name, description, keyPrefix, scope, bindingIds, enabled, lastUsedAt, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        keyPrefix:
+          type: string
+        scope:
+          type: string
+          enum: [all, selected]
+        bindingIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        enabled:
+          type: boolean
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ProxyAppWithKey:
+      allOf:
+        - $ref: "#/components/schemas/ProxyApp"
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+    CreateProxyAppRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 280
+        scope:
+          type: string
+          enum: [all, selected]
+        bindingIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        enabled:
+          type: boolean
+    UpdateProxyAppRequest:
+      allOf:
+        - $ref: "#/components/schemas/CreateProxyAppRequest"
+      description: Partial proxy app update; all fields are optional.
+    ProxyRequestLog:
+      type: object
+      required: [id, bindingId, appId, method, path, statusCode, durationMs, upstreamUrl, incomingRequest, transformedRequest, responseBody, errors, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bindingId:
+          type: string
+          format: uuid
+          nullable: true
+        appId:
+          type: string
+          format: uuid
+          nullable: true
+        method:
+          type: string
+        path:
+          type: string
+        statusCode:
+          type: integer
+        durationMs:
+          type: integer
+          minimum: 0
+        upstreamUrl:
+          type: string
+          nullable: true
+        incomingRequest:
+          nullable: true
+        transformedRequest:
+          nullable: true
+        responseBody:
+          nullable: true
+        errors:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time

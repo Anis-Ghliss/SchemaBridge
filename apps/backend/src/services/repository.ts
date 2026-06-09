@@ -13,6 +13,7 @@ import type {
   ProxyAppWithKey,
   ProxyBinding,
   ProxyBindingMethod,
+  ProxyBindingValidationMode,
   ProxyRequestLog,
   SchemaDocument,
   UpdateProxyAppRequest,
@@ -21,6 +22,7 @@ import type {
 import { generateApiKey, hashApiKey } from "./authService.js";
 
 type MappingRecord = Prisma.MappingGetPayload<{ include: { versions: true } }>;
+type MappingWithSchemasRecord = Prisma.MappingGetPayload<{ include: { versions: true; sourceSchema: true; targetSchema: true } }>;
 type ProxyBindingRecord = Prisma.ProxyBindingGetPayload<Record<string, never>>;
 type ProxyRequestLogRecord = Prisma.ProxyRequestLogGetPayload<Record<string, never>>;
 type ProxyAppRecord = Prisma.ProxyAppGetPayload<Record<string, never>>;
@@ -35,6 +37,7 @@ export interface RecordProxyRequestInput {
   readonly statusCode: number;
   readonly durationMs: number;
   readonly upstreamUrl?: string | null;
+  readonly incomingRequest?: unknown;
   readonly transformedRequest?: unknown;
   readonly responseBody?: unknown;
   readonly errors: readonly string[];
@@ -46,6 +49,10 @@ export interface ActiveBinding {
   readonly binding: ProxyBinding;
   readonly requestRules: readonly MappingRule[];
   readonly responseRules: readonly MappingRule[];
+  readonly requestSourceSchema: JsonValue;
+  readonly requestTargetSchema: JsonValue;
+  readonly responseSourceSchema?: JsonValue;
+  readonly responseTargetSchema?: JsonValue;
 }
 
 export class SchemaBridgeRepository {
@@ -69,26 +76,40 @@ export class SchemaBridgeRepository {
     };
   }
 
-  public async deleteSchema(id: string): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
+  public async deleteSchema(id: string, options: { readonly cascade?: boolean } = {}): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
     const existing = await this.prisma.schemaDocument.findUnique({ where: { id } });
     if (!existing) return { ok: false, conflict: "not-found" };
     const referencingMapping = await this.prisma.mapping.findFirst({
       where: { OR: [{ sourceSchemaId: id }, { targetSchemaId: id }] },
       select: { id: true, name: true }
     });
-    if (referencingMapping) return { ok: false, conflict: `Used by mapping "${referencingMapping.name}"` };
+    if (referencingMapping && !options.cascade) return { ok: false, conflict: `Used by mapping "${referencingMapping.name}"` };
+    if (options.cascade) {
+      const mappings = await this.prisma.mapping.findMany({
+        where: { OR: [{ sourceSchemaId: id }, { targetSchemaId: id }] },
+        select: { id: true }
+      });
+      for (const mapping of mappings) {
+        const result = await this.deleteMapping(mapping.id, { cascade: true });
+        if (!result.ok) return result;
+      }
+    }
     await this.prisma.schemaDocument.delete({ where: { id } });
     return { ok: true };
   }
 
-  public async deleteMapping(id: string): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
+  public async deleteMapping(id: string, options: { readonly cascade?: boolean } = {}): Promise<{ readonly ok: boolean; readonly conflict?: string }> {
     const existing = await this.prisma.mapping.findUnique({ where: { id } });
     if (!existing) return { ok: false, conflict: "not-found" };
     const referencingBinding = await this.prisma.proxyBinding.findFirst({
       where: { OR: [{ mappingId: id }, { responseMappingId: id }] },
       select: { id: true, name: true }
     });
-    if (referencingBinding) return { ok: false, conflict: `Used by binding "${referencingBinding.name}"` };
+    if (referencingBinding && !options.cascade) return { ok: false, conflict: `Used by binding "${referencingBinding.name}"` };
+    if (options.cascade) {
+      await this.prisma.proxyBinding.deleteMany({ where: { mappingId: id } });
+      await this.prisma.proxyBinding.updateMany({ where: { responseMappingId: id }, data: { responseMappingId: null } });
+    }
     await this.prisma.mapping.delete({ where: { id } });
     return { ok: true };
   }
@@ -189,6 +210,26 @@ export class SchemaBridgeRepository {
     return toMappingDocument(updated);
   }
 
+  public async updateCurrentMappingVersion(id: string, rules: readonly MappingRule[]): Promise<MappingDocument | null> {
+    const mapping = await this.prisma.mapping.findUnique({ where: { id } });
+    if (!mapping) return null;
+
+    const version = await this.prisma.mappingVersion.findUnique({ where: { mappingId_version: { mappingId: id, version: mapping.currentVersion } } });
+    if (!version) return null;
+
+    await this.prisma.mappingVersion.update({
+      where: { mappingId_version: { mappingId: id, version: mapping.currentVersion } },
+      data: { rules: rules as unknown as Prisma.InputJsonValue }
+    });
+
+    const updated = await this.prisma.mapping.update({
+      where: { id },
+      data: { currentVersion: mapping.currentVersion },
+      include: { versions: { orderBy: { version: "asc" } } }
+    });
+    return toMappingDocument(updated);
+  }
+
   public async restoreMappingVersion(id: string, version: number): Promise<MappingDocument | null> {
     const exists = await this.prisma.mappingVersion.findUnique({ where: { mappingId_version: { mappingId: id, version } } });
     if (!exists) return null;
@@ -220,6 +261,7 @@ export class SchemaBridgeRepository {
         mappingId: input.mappingId,
         responseMappingId: input.responseMappingId ?? null,
         forwardHeaders: (input.forwardHeaders ?? DEFAULT_FORWARD_HEADERS) as unknown as Prisma.InputJsonValue,
+        validationMode: input.validationMode ?? "off",
         enabled: input.enabled ?? true
       }
     });
@@ -239,6 +281,7 @@ export class SchemaBridgeRepository {
         mappingId: input.mappingId ?? undefined,
         responseMappingId: input.responseMappingId === undefined ? undefined : input.responseMappingId,
         forwardHeaders: input.forwardHeaders === undefined ? undefined : (input.forwardHeaders as unknown as Prisma.InputJsonValue),
+        validationMode: input.validationMode ?? undefined,
         enabled: input.enabled ?? undefined
       }
     });
@@ -262,11 +305,19 @@ export class SchemaBridgeRepository {
         statusCode: input.statusCode,
         durationMs: input.durationMs,
         upstreamUrl: input.upstreamUrl ?? null,
+        incomingRequest: truncateJson(input.incomingRequest),
         transformedRequest: truncateJson(input.transformedRequest),
         responseBody: truncateJson(input.responseBody),
         errors: input.errors as unknown as Prisma.InputJsonValue
       }
     });
+  }
+
+  public async deleteProxyRequestsOlderThan(cutoff: Date): Promise<number> {
+    const result = await this.prisma.proxyRequestLog.deleteMany({
+      where: { createdAt: { lt: cutoff } }
+    });
+    return result.count;
   }
 
   public async createProxyApp(input: CreateProxyAppRequest): Promise<ProxyAppWithKey> {
@@ -358,20 +409,24 @@ export class SchemaBridgeRepository {
       where: { enabled: true },
       orderBy: { createdAt: "asc" },
       include: {
-        mapping: { include: { versions: true } },
-        responseMapping: { include: { versions: true } }
+        mapping: { include: { versions: true, sourceSchema: true, targetSchema: true } },
+        responseMapping: { include: { versions: true, sourceSchema: true, targetSchema: true } }
       }
     });
 
     return records.map((record) => ({
       binding: toProxyBinding(record),
       requestRules: rulesForCurrentVersion(record.mapping),
-      responseRules: record.responseMapping ? rulesForCurrentVersion(record.responseMapping) : []
+      responseRules: record.responseMapping ? rulesForCurrentVersion(record.responseMapping) : [],
+      requestSourceSchema: record.mapping.sourceSchema.content as JsonValue,
+      requestTargetSchema: record.mapping.targetSchema.content as JsonValue,
+      responseSourceSchema: record.responseMapping ? record.responseMapping.sourceSchema.content as JsonValue : undefined,
+      responseTargetSchema: record.responseMapping ? record.responseMapping.targetSchema.content as JsonValue : undefined
     }));
   }
 }
 
-function rulesForCurrentVersion(mapping: MappingRecord): readonly MappingRule[] {
+function rulesForCurrentVersion(mapping: MappingRecord | MappingWithSchemasRecord): readonly MappingRule[] {
   const current = mapping.versions.find((version) => version.version === mapping.currentVersion);
   return (current?.rules ?? []) as unknown as MappingRule[];
 }
@@ -393,6 +448,7 @@ function toProxyRequestLog(record: ProxyRequestLogRecord): ProxyRequestLog {
     statusCode: record.statusCode,
     durationMs: record.durationMs,
     upstreamUrl: record.upstreamUrl,
+    incomingRequest: ((record as { incomingRequest?: unknown }).incomingRequest ?? null) as ProxyRequestLog["incomingRequest"],
     transformedRequest: (record.transformedRequest ?? null) as ProxyRequestLog["transformedRequest"],
     responseBody: (record.responseBody ?? null) as ProxyRequestLog["responseBody"],
     errors: (record.errors ?? []) as unknown as string[],
@@ -425,6 +481,7 @@ function toProxyBinding(record: ProxyBindingRecord): ProxyBinding {
     mappingId: record.mappingId,
     responseMappingId: record.responseMappingId,
     forwardHeaders: (record.forwardHeaders ?? []) as unknown as string[],
+    validationMode: ((record as { validationMode?: string }).validationMode ?? "off") as ProxyBindingValidationMode,
     enabled: record.enabled,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()

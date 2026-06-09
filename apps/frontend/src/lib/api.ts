@@ -11,12 +11,13 @@ import type {
   SchemaDocument,
   TransformRequest,
   TransformResult,
+  UpdateMappingVersionRequest,
   UpdateProxyAppRequest,
   UpdateProxyBindingRequest,
   UpdateSchemaRequest
 } from "@schemabridge/shared-types";
 
-const API_URL = resolveApiUrl();
+export const API_URL = resolveApiUrl();
 export const PROXY_URL = resolveProxyUrl();
 
 function resolveApiUrl(): string {
@@ -45,12 +46,12 @@ export async function updateSchema(id: string, input: UpdateSchemaRequest): Prom
   return request(`/schemas/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
-export async function deleteSchema(id: string): Promise<void> {
-  await request<void>(`/schemas/${id}`, { method: "DELETE" });
+export async function deleteSchema(id: string, options: { readonly cascade?: boolean } = {}): Promise<void> {
+  await request<void>(`/schemas/${id}${options.cascade ? "?cascade=true" : ""}`, { method: "DELETE" });
 }
 
-export async function deleteMapping(id: string): Promise<void> {
-  await request<void>(`/mappings/${id}`, { method: "DELETE" });
+export async function deleteMapping(id: string, options: { readonly cascade?: boolean } = {}): Promise<void> {
+  await request<void>(`/mappings/${id}${options.cascade ? "?cascade=true" : ""}`, { method: "DELETE" });
 }
 
 export async function createMapping(input: CreateMappingRequest): Promise<MappingDocument> {
@@ -63,6 +64,10 @@ export async function listMappings(): Promise<readonly MappingDocument[]> {
 
 export async function createMappingVersion(id: string, rules: CreateMappingRequest["rules"]): Promise<MappingDocument> {
   return request(`/mappings/${id}/versions`, { method: "POST", body: JSON.stringify({ rules }) });
+}
+
+export async function updateCurrentMappingVersion(id: string, rules: UpdateMappingVersionRequest["rules"]): Promise<MappingDocument> {
+  return request(`/mappings/${id}/versions/current`, { method: "PATCH", body: JSON.stringify({ rules }) });
 }
 
 export async function restoreMappingVersion(id: string, version: number): Promise<MappingDocument> {
@@ -123,6 +128,13 @@ export interface ProxyProbeResult {
   readonly body: unknown;
 }
 
+export async function probeBinding(bindingId: string, input: unknown, options: { readonly appId?: string } = {}): Promise<ProxyProbeResult> {
+  return request(`/bindings/${bindingId}/probe`, {
+    method: "POST",
+    body: JSON.stringify({ input, appId: options.appId ?? null })
+  });
+}
+
 export async function probeProxy(binding: ProxyBinding, body: unknown, options: { readonly apiKey?: string } = {}): Promise<ProxyProbeResult> {
   const method = binding.method === "*" ? "POST" : binding.method;
   const url = `${PROXY_URL}${concretizePath(binding.pathPattern)}`;
@@ -174,7 +186,10 @@ export function onAdminUnauthorized(handler: () => void): void {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { "content-type": "application/json", ...(init?.headers as Record<string, string> | undefined ?? {}) };
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined ?? {}) };
+  if (init?.body !== undefined && !hasHeader(headers, "content-type")) {
+    headers["content-type"] = "application/json";
+  }
   const token = getAdminToken();
   if (token) headers["authorization"] = `Bearer ${token}`;
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
@@ -182,7 +197,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) return undefined as unknown as T;
   const data = (await response.json()) as T;
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    throw new Error(formatApiError(data));
   }
   return data;
+}
+
+function formatApiError(data: unknown): string {
+  if (data && typeof data === "object" && "error" in data && typeof data.error === "string") return data.error;
+  if (data && typeof data === "object" && "errors" in data) return JSON.stringify(data.errors);
+  return JSON.stringify(data);
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const lowered = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === lowered);
 }

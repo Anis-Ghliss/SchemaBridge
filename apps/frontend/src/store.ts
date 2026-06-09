@@ -18,6 +18,7 @@ import {
   rotateProxyAppKey,
   transform,
   updateBinding,
+  updateCurrentMappingVersion,
   updateProxyApp,
   updateSchema
 } from "./lib/api";
@@ -25,8 +26,24 @@ import { sampleSource, sampleTarget } from "./lib/samples";
 
 export type ResourceView = "schemas" | "mappings" | "bindings" | "apps" | "live";
 
+export interface AppDialog {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly confirmLabel?: string;
+  readonly cancelLabel?: string;
+  readonly variant?: "default" | "danger";
+  readonly showCancel?: boolean;
+}
+
+interface PendingDialog extends AppDialog {
+  readonly resolve: (confirmed: boolean) => void;
+}
+
 interface AppState {
   readonly view: ResourceView;
+  readonly unsavedChange?: { readonly id: string; readonly message: string };
+  readonly dialog?: PendingDialog;
   readonly selectedSchemaId?: string;
   readonly selectedMappingId?: string;
   readonly selectedBindingId?: string;
@@ -42,7 +59,12 @@ interface AppState {
   readonly status: string;
   readonly output?: JsonValue;
   readonly error?: string;
-  readonly setView: (view: ResourceView) => void;
+  readonly setView: (view: ResourceView) => Promise<boolean>;
+  readonly setUnsavedChange: (change?: { readonly id: string; readonly message: string }) => void;
+  readonly confirmUnsavedChange: () => Promise<boolean>;
+  readonly confirmDialog: (dialog: Omit<AppDialog, "id">) => Promise<boolean>;
+  readonly alertDialog: (dialog: Omit<AppDialog, "id" | "showCancel" | "cancelLabel">) => Promise<void>;
+  readonly resolveDialog: (confirmed: boolean) => void;
   readonly selectSchema: (id?: string) => void;
   readonly selectMapping: (id?: string) => void;
   readonly selectBinding: (id?: string) => void;
@@ -51,12 +73,13 @@ interface AppState {
   readonly load: () => Promise<void>;
   readonly createSchema: (input: { readonly name: string; readonly content: JsonValue }) => Promise<SchemaDocument>;
   readonly editSchema: (id: string, input: UpdateSchemaRequest) => Promise<void>;
-  readonly removeSchema: (id: string) => Promise<void>;
-  readonly removeMapping: (id: string) => Promise<void>;
+  readonly removeSchema: (id: string, options?: { readonly cascade?: boolean }) => Promise<void>;
+  readonly removeMapping: (id: string, options?: { readonly cascade?: boolean }) => Promise<void>;
   readonly setRules: (rules: readonly MappingRule[]) => void;
   readonly setActiveMapping: (id: string) => void;
   readonly createMapping: (input: { readonly name: string; readonly sourceSchemaId: string; readonly targetSchemaId: string; readonly rules: readonly MappingRule[] }) => Promise<MappingDocument>;
-  readonly saveVersion: () => Promise<void>;
+  readonly saveMapping: () => Promise<void>;
+  readonly createVersion: () => Promise<void>;
   readonly restoreVersion: (version: number) => Promise<void>;
   readonly runTransform: (input: JsonValue) => Promise<void>;
   readonly addBinding: (input: CreateProxyBindingRequest) => Promise<void>;
@@ -80,8 +103,55 @@ export const useAppStore = create<AppState>((set, get) => ({
   apps: [],
   rules: [],
   status: "Ready",
-  setView(view) {
+  async setView(view) {
+    const current = get();
+    if (current.view !== view && current.unsavedChange) {
+      if (!(await get().confirmUnsavedChange())) return false;
+    }
+    if (current.view !== view) {
+      set({
+        view,
+        selectedSchemaId: undefined,
+        selectedMappingId: undefined,
+        selectedBindingId: undefined,
+        selectedAppId: undefined,
+        activeMapping: undefined,
+        rules: []
+      });
+      return true;
+    }
     set({ view });
+    return true;
+  },
+  setUnsavedChange(change) {
+    set({ unsavedChange: change });
+  },
+  async confirmUnsavedChange() {
+    const change = get().unsavedChange;
+    if (!change) return true;
+    const confirmed = await get().confirmDialog({
+      title: "Discard unsaved changes?",
+      description: change.message,
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      variant: "danger"
+    });
+    if (confirmed) set({ unsavedChange: undefined });
+    return confirmed;
+  },
+  confirmDialog(dialog) {
+    return new Promise<boolean>((resolve) => {
+      set({ dialog: { ...dialog, id: crypto.randomUUID(), resolve, showCancel: true } });
+    });
+  },
+  async alertDialog(dialog) {
+    await get().confirmDialog({ ...dialog, confirmLabel: dialog.confirmLabel ?? "OK", showCancel: false });
+  },
+  resolveDialog(confirmed) {
+    const dialog = get().dialog;
+    if (!dialog) return;
+    set({ dialog: undefined });
+    dialog.resolve(confirmed);
   },
   selectSchema(id) {
     set({ selectedSchemaId: id });
@@ -116,13 +186,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const schema = await updateSchema(id, input);
     set({ schemas: get().schemas.map((item) => (item.id === id ? schema : item)), status: `Schema ${schema.name} updated` });
   },
-  async removeSchema(id) {
-    await deleteSchema(id);
-    set({ schemas: get().schemas.filter((item) => item.id !== id), selectedSchemaId: undefined, status: "Schema removed" });
+  async removeSchema(id, options) {
+    await deleteSchema(id, options);
+    const [schemas, mappings, bindings] = await Promise.all([listSchemas(), listMappings(), listBindings()]);
+    set({ schemas, mappings, bindings, selectedSchemaId: undefined, selectedMappingId: undefined, selectedBindingId: undefined, activeMapping: undefined, rules: [], status: "Schema removed" });
   },
-  async removeMapping(id) {
-    await deleteMapping(id);
-    set({ mappings: get().mappings.filter((item) => item.id !== id), selectedMappingId: undefined, status: "Mapping removed" });
+  async removeMapping(id, options) {
+    await deleteMapping(id, options);
+    const [mappings, bindings] = await Promise.all([listMappings(), listBindings()]);
+    set({ mappings, bindings, selectedMappingId: undefined, selectedBindingId: undefined, activeMapping: undefined, rules: [], status: "Mapping removed" });
   },
   setRules(rules) {
     set({ rules });
@@ -140,11 +212,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ activeMapping: mapping, mappings: [mapping, ...get().mappings], status: `Mapping ${mapping.name} created`, rules: [...input.rules] });
     return mapping;
   },
-  async saveVersion() {
+  async saveMapping() {
+    const { activeMapping, rules } = get();
+    if (!activeMapping) throw new Error("Select a mapping first.");
+    const mapping = await updateCurrentMappingVersion(activeMapping.id, [...rules]);
+    set({ activeMapping: mapping, mappings: get().mappings.map((item) => (item.id === mapping.id ? mapping : item)), status: `Version ${mapping.currentVersion} updated` });
+  },
+  async createVersion() {
     const { activeMapping, rules } = get();
     if (!activeMapping) throw new Error("Select a mapping first.");
     const mapping = await createMappingVersion(activeMapping.id, [...rules]);
-    set({ activeMapping: mapping, mappings: get().mappings.map((item) => (item.id === mapping.id ? mapping : item)), status: `Version ${mapping.currentVersion} saved` });
+    set({ activeMapping: mapping, mappings: get().mappings.map((item) => (item.id === mapping.id ? mapping : item)), status: `Version ${mapping.currentVersion} created` });
   },
   async restoreVersion(version) {
     const { activeMapping } = get();

@@ -4,6 +4,7 @@ import fastify, { type FastifyInstance } from "fastify";
 import { SchemaBridgeRepository } from "./services/repository.js";
 import { ProxyService } from "./services/proxyService.js";
 import { parseBearerToken } from "./services/authService.js";
+import { registerInMemoryRateLimit, type RateLimitOptions } from "./services/rateLimiter.js";
 import type { Dispatcher } from "undici";
 
 export interface ProxyAppOptions {
@@ -11,6 +12,9 @@ export interface ProxyAppOptions {
   readonly corsOrigin?: string;
   readonly dispatcher?: Dispatcher;
   readonly requireAuth?: boolean;
+  readonly bodyLimitBytes?: number;
+  readonly rateLimit?: RateLimitOptions;
+  readonly upstreamTimeoutMs?: number;
 }
 
 export interface ProxyAppBundle {
@@ -19,14 +23,15 @@ export interface ProxyAppBundle {
 }
 
 export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyAppBundle> {
-  const app = fastify({ logger: true });
+  const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
   const repository = new SchemaBridgeRepository(options.prisma);
-  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher });
+  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher, upstreamTimeoutMs: options.upstreamTimeoutMs });
   const requireAuth = options.requireAuth ?? false;
 
   await proxyService.reload();
 
   app.register(cors, { origin: options.corsOrigin ?? true });
+  if (options.rateLimit) registerInMemoryRateLimit(app, options.rateLimit);
 
   app.route({
     method: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
@@ -42,16 +47,16 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
       if (requireAuth) {
         const token = parseBearerToken(request.headers["authorization"]);
         if (!token) {
-          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, errors: ["missing Bearer token"] });
+          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["missing Bearer token"] });
           return reply.code(401).send({ error: "missing Authorization Bearer token" });
         }
         const app = await repository.findProxyAppByPlaintextKey(token);
         if (!app) {
-          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, errors: ["unknown api key"] });
+          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["unknown api key"] });
           return reply.code(401).send({ error: "invalid api key" });
         }
         if (!app.enabled) {
-          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, errors: ["app disabled"] });
+          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app disabled"] });
           return reply.code(403).send({ error: "app is disabled" });
         }
         authorizedAppId = app.id;
@@ -60,11 +65,11 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
 
         const matched = proxyService.matchBinding(request.method, path);
         if (!matched) {
-          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, errors: [`no binding for ${request.method} ${path}`] });
+          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
           return reply.code(404).send({ error: `No proxy binding for ${request.method} ${path}` });
         }
         if (app.scope === "selected" && !app.bindingIds.includes(matched.active.binding.id)) {
-          recordSafely(repository, { bindingId: matched.active.binding.id, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, errors: ["app key not authorized for this binding"] });
+          recordSafely(repository, { bindingId: matched.active.binding.id, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app key not authorized for this binding"] });
           return reply.code(403).send({ error: "api key not authorized for this binding" });
         }
 
@@ -73,7 +78,7 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
 
       const matched = proxyService.matchBinding(request.method, path);
       if (!matched) {
-        recordSafely(repository, { bindingId: null, appId: authorizedAppId, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, errors: [`no binding for ${request.method} ${path}`] });
+        recordSafely(repository, { bindingId: null, appId: authorizedAppId, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
         return reply.code(404).send({ error: `No proxy binding for ${request.method} ${path}` });
       }
       return forward(matched, request, path, query, reply, startedAt, authorizedAppId);
@@ -103,6 +108,7 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
           statusCode: result.statusCode,
           durationMs,
           upstreamUrl: result.trace.upstreamUrl,
+          incomingRequest: req.body,
           transformedRequest: result.trace.transformedRequest,
           responseBody: result.body,
           errors: result.trace.errors

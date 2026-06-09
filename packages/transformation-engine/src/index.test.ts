@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { transformPayload, validateMappingRules } from "./index";
+import { transformPayload, validateAgainstExample, validateMappingRules } from "./index";
 
 describe("transformation engine", () => {
   it("maps flat fields into nested fields", () => {
@@ -47,6 +47,22 @@ describe("transformation engine", () => {
     const result = transformPayload({ customers: [{ name: "Ada" }] }, [{ id: "1", sourcePath: "customers.0.name", targetPath: "primary.name" }]);
 
     expect(result.output).toEqual({ primary: { name: "Ada" } });
+  });
+
+  it("maps array item wildcard paths", () => {
+    const result = transformPayload(
+      { items: [{ sku: "BOOK-001", qty: 2, unit_price: 19.99 }] },
+      [
+        { id: "1", sourcePath: "items[].sku", targetPath: "lineItems[].sku" },
+        { id: "2", sourcePath: "items[].qty", targetPath: "lineItems[].qty" },
+        { id: "3", sourcePath: "items[].unit_price", targetPath: "lineItems[].unit_price" }
+      ],
+      { includeMissingErrors: true }
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.errors).toEqual([]);
+    expect(result.output).toEqual({ lineItems: [{ sku: "BOOK-001", qty: 2, unit_price: 19.99 }] });
   });
 
   it("reports target path conflicts", () => {
@@ -136,5 +152,18 @@ describe("transformation engine", () => {
     const result = transformPayload({ d: "not-a-date" }, [{ id: "1", sourcePath: "d", targetPath: "x", transform: "iso-date" }]);
     expect(result.status).toBe("error");
     expect(result.errors[0]).toContain("not-a-date");
+  });
+
+  it("validates payloads against example schemas", () => {
+    expect(validateAgainstExample({ items: [{ sku: "BOOK-001" }] }, { items: [{ sku: "BOOK-001", qty: 1 }] }, "request-source")).toEqual([
+      "request-source.items[0].qty is required"
+    ]);
+  });
+
+  it("validates array, object, null, and primitive example mismatches", () => {
+    expect(validateAgainstExample({ items: {} }, { items: [{ sku: "BOOK-001" }] }, "payload")).toEqual(["payload.items must be an array"]);
+    expect(validateAgainstExample({ customer: [] }, { customer: { name: "Ada" } }, "payload")).toEqual(["payload.customer must be an object"]);
+    expect(validateAgainstExample({ deletedAt: "never" }, { deletedAt: null }, "payload")).toEqual(["payload.deletedAt must be null"]);
+    expect(validateAgainstExample({ total: "43.48" }, { total: 43.48 }, "payload")).toEqual(["payload.total must be number"]);
   });
 });

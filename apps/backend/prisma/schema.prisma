@@ -53,6 +53,7 @@ model ProxyBinding {
   mappingId         String
   responseMappingId String?
   forwardHeaders    Json
+  validationMode    String   @default("off")
   enabled           Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -70,6 +71,7 @@ model ProxyRequestLog {
   statusCode         Int
   durationMs         Int
   upstreamUrl        String?
+  incomingRequest    Json?
   transformedRequest Json?
   responseBody       Json?
   errors             Json

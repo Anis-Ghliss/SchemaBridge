@@ -1,16 +1,18 @@
 import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useAppStore, type ResourceView } from "../store";
-import { SchemasPage } from "../pages/SchemasPage";
-import { MappingsPage } from "../pages/MappingsPage";
 import { BindingsPage } from "../pages/BindingsPage";
-import { AppsPage } from "../pages/AppsPage";
-import { LivePage } from "../pages/LivePage";
-import { QuickStartModal } from "./QuickStartModal";
-import { RevealKeyDialog } from "./RevealKeyDialog";
 import { AdminLoginDialog } from "./AdminLoginDialog";
+import { AppDialog } from "./AppDialog";
 import { onAdminUnauthorized } from "../lib/api";
 import { cn } from "../lib/utils";
+
+const SchemasPage = lazy(() => import("../pages/SchemasPage").then((module) => ({ default: module.SchemasPage })));
+const MappingsPage = lazy(() => import("../pages/MappingsPage").then((module) => ({ default: module.MappingsPage })));
+const AppsPage = lazy(() => import("../pages/AppsPage").then((module) => ({ default: module.AppsPage })));
+const LivePage = lazy(() => import("../pages/LivePage").then((module) => ({ default: module.LivePage })));
+const QuickStartModal = lazy(() => import("./QuickStartModal").then((module) => ({ default: module.QuickStartModal })));
+const RevealKeyDialog = lazy(() => import("./RevealKeyDialog").then((module) => ({ default: module.RevealKeyDialog })));
 
 interface NavItem {
   readonly id: ResourceView;
@@ -65,7 +67,7 @@ export function ResourceShell() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setView(item.id)}
+                onClick={() => void setView(item.id)}
                 className={cn(
                   "mb-1 flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
                   isActive ? "bg-foreground text-primary-foreground" : "text-slate-700 hover:bg-muted"
@@ -102,17 +104,30 @@ export function ResourceShell() {
         </header>
 
         <main className="min-h-0 flex-1 overflow-auto px-6 py-6">
-          {view === "schemas" && <SchemasPage />}
-          {view === "mappings" && <MappingsPage />}
-          {view === "bindings" && <BindingsPage />}
-          {view === "apps" && <AppsPage />}
-          {view === "live" && <LivePage />}
+          <Suspense fallback={<ViewLoading />}>
+            {view === "schemas" && <SchemasPage />}
+            {view === "mappings" && <MappingsPage />}
+            {view === "bindings" && <BindingsPage />}
+            {view === "apps" && <AppsPage />}
+            {view === "live" && <LivePage />}
+          </Suspense>
         </main>
       </div>
 
-      {quickStartOpen && <QuickStartModal />}
-      {revealedKey && <RevealKeyDialog />}
+      <Suspense fallback={null}>
+        {quickStartOpen && <QuickStartModal />}
+        {revealedKey && <RevealKeyDialog />}
+      </Suspense>
+      <AppDialog />
       {loginRequired && <AdminLoginDialog onAuthenticated={() => { setLoginRequired(false); void load(); }} />}
+    </div>
+  );
+}
+
+function ViewLoading() {
+  return (
+    <div className="grid min-h-[240px] place-items-center rounded-md border border-dashed border-border text-xs text-slate-500">
+      Loading…
     </div>
   );
 }

@@ -35,6 +35,7 @@ interface BindingRow {
   mappingId: string;
   responseMappingId: string | null;
   forwardHeaders: unknown;
+  validationMode: string;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +50,7 @@ interface ProxyRequestLogRow {
   statusCode: number;
   durationMs: number;
   upstreamUrl: string | null;
+  incomingRequest: unknown;
   transformedRequest: unknown;
   responseBody: unknown;
   errors: unknown;
@@ -85,6 +87,16 @@ export function createMemoryPrisma() {
     return { ...mapping, versions: versions.filter((v) => v.mappingId === id).sort((a, b) => a.version - b.version) };
   }
 
+  function getMappingWithRelations(id: string) {
+    const mapping = getMappingWithVersions(id);
+    if (!mapping) return null;
+    return {
+      ...mapping,
+      sourceSchema: schemas.find((schema) => schema.id === mapping.sourceSchemaId),
+      targetSchema: schemas.find((schema) => schema.id === mapping.targetSchemaId)
+    };
+  }
+
   return {
     schemaDocument: {
       async create({ data }: { data: { name: string; content: unknown; fields: unknown } }) {
@@ -97,6 +109,11 @@ export function createMemoryPrisma() {
       },
       async findUnique({ where }: WhereId) {
         return schemas.find((s) => s.id === where.id) ?? null;
+      },
+      async delete({ where }: WhereId) {
+        const index = schemas.findIndex((s) => s.id === where.id);
+        if (index < 0) throw new Error("not found");
+        return schemas.splice(index, 1)[0];
       }
     },
     mapping: {
@@ -117,8 +134,16 @@ export function createMemoryPrisma() {
         if (include) return getMappingWithVersions(row.id);
         return row;
       },
-      async findMany({ include }: { include?: unknown } = {}) {
-        const sorted = [...mappings].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      async findMany({ where, include, select }: { where?: { OR?: Array<{ sourceSchemaId?: string; targetSchemaId?: string }> }; include?: unknown; select?: unknown } = {}) {
+        let rows = [...mappings];
+        if (where?.OR) {
+          rows = rows.filter((row) => where.OR!.some((condition) => (
+            (condition.sourceSchemaId !== undefined && row.sourceSchemaId === condition.sourceSchemaId)
+            || (condition.targetSchemaId !== undefined && row.targetSchemaId === condition.targetSchemaId)
+          )));
+        }
+        const sorted = rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        if (select) return sorted.map((mapping) => ({ id: mapping.id }));
         if (include) return sorted.map((m) => getMappingWithVersions(m.id));
         return sorted;
       },
@@ -126,6 +151,15 @@ export function createMemoryPrisma() {
         const mapping = mappings.find((m) => m.id === where.id);
         if (!mapping) return null;
         return include ? getMappingWithVersions(mapping.id) : mapping;
+      },
+      async findFirst({ where, select }: { where: { OR: Array<{ sourceSchemaId?: string; targetSchemaId?: string }> }; select?: unknown }) {
+        const mapping = mappings.find((row) => where.OR.some((condition) => (
+          (condition.sourceSchemaId !== undefined && row.sourceSchemaId === condition.sourceSchemaId)
+          || (condition.targetSchemaId !== undefined && row.targetSchemaId === condition.targetSchemaId)
+        )));
+        if (!mapping) return null;
+        if (select) return { id: mapping.id, name: mapping.name };
+        return mapping;
       },
       async update({ where, data, include }: WhereId & { data: { currentVersion?: number; versions?: { create: { version: number; rules: unknown } } }; include?: unknown }) {
         const mapping = mappings.find((m) => m.id === where.id);
@@ -136,17 +170,32 @@ export function createMemoryPrisma() {
         }
         mapping.updatedAt = new Date();
         return include ? getMappingWithVersions(mapping.id) : mapping;
+      },
+      async delete({ where }: WhereId) {
+        const index = mappings.findIndex((m) => m.id === where.id);
+        if (index < 0) throw new Error("not found");
+        const deleted = mappings.splice(index, 1)[0];
+        for (let versionIndex = versions.length - 1; versionIndex >= 0; versionIndex -= 1) {
+          if (versions[versionIndex]?.mappingId === where.id) versions.splice(versionIndex, 1);
+        }
+        return deleted;
       }
     },
     mappingVersion: {
       async findUnique({ where }: { where: { mappingId_version: { mappingId: string; version: number } } }) {
         return versions.find((v) => v.mappingId === where.mappingId_version.mappingId && v.version === where.mappingId_version.version) ?? null;
+      },
+      async update({ where, data }: { where: { mappingId_version: { mappingId: string; version: number } }; data: { rules: unknown } }) {
+        const version = versions.find((v) => v.mappingId === where.mappingId_version.mappingId && v.version === where.mappingId_version.version);
+        if (!version) throw new Error("not found");
+        version.rules = data.rules;
+        return version;
       }
     },
     proxyBinding: {
       async create({ data }: { data: Omit<BindingRow, "id" | "createdAt" | "updatedAt"> }) {
         const now = new Date();
-        const row: BindingRow = { ...data, id: randomUUID(), createdAt: now, updatedAt: now };
+        const row: BindingRow = { ...data, validationMode: data.validationMode ?? "off", id: randomUUID(), createdAt: now, updatedAt: now };
         bindings.push(row);
         return row;
       },
@@ -157,12 +206,21 @@ export function createMemoryPrisma() {
         if (!include) return rows;
         return rows.map((row) => ({
           ...row,
-          mapping: getMappingWithVersions(row.mappingId),
-          responseMapping: row.responseMappingId ? getMappingWithVersions(row.responseMappingId) : null
+          mapping: getMappingWithRelations(row.mappingId),
+          responseMapping: row.responseMappingId ? getMappingWithRelations(row.responseMappingId) : null
         }));
       },
       async findUnique({ where }: WhereId) {
         return bindings.find((b) => b.id === where.id) ?? null;
+      },
+      async findFirst({ where, select }: { where: { OR: Array<{ mappingId?: string; responseMappingId?: string }> }; select?: unknown }) {
+        const binding = bindings.find((row) => where.OR.some((condition) => (
+          (condition.mappingId !== undefined && row.mappingId === condition.mappingId)
+          || (condition.responseMappingId !== undefined && row.responseMappingId === condition.responseMappingId)
+        )));
+        if (!binding) return null;
+        if (select) return { id: binding.id, name: binding.name };
+        return binding;
       },
       async update({ where, data }: WhereId & { data: Partial<BindingRow> }) {
         const row = bindings.find((b) => b.id === where.id);
@@ -175,11 +233,29 @@ export function createMemoryPrisma() {
         const index = bindings.findIndex((b) => b.id === where.id);
         if (index < 0) throw new Error("not found");
         return bindings.splice(index, 1)[0];
+      },
+      async deleteMany({ where }: { where: { mappingId?: string } }) {
+        const before = bindings.length;
+        for (let index = bindings.length - 1; index >= 0; index -= 1) {
+          if (where.mappingId !== undefined && bindings[index]?.mappingId === where.mappingId) bindings.splice(index, 1);
+        }
+        return { count: before - bindings.length };
+      },
+      async updateMany({ where, data }: { where: { responseMappingId?: string }; data: Partial<BindingRow> }) {
+        let count = 0;
+        for (const binding of bindings) {
+          if (where.responseMappingId !== undefined && binding.responseMappingId === where.responseMappingId) {
+            Object.assign(binding, data);
+            binding.updatedAt = new Date();
+            count += 1;
+          }
+        }
+        return { count };
       }
     },
     proxyRequestLog: {
-      async create({ data }: { data: Omit<ProxyRequestLogRow, "id" | "createdAt" | "appId"> & { appId?: string | null } }) {
-        const row: ProxyRequestLogRow = { ...data, appId: data.appId ?? null, id: randomUUID(), createdAt: new Date() };
+      async create({ data }: { data: Omit<ProxyRequestLogRow, "id" | "createdAt" | "appId" | "incomingRequest"> & { appId?: string | null; incomingRequest?: unknown } }) {
+        const row: ProxyRequestLogRow = { ...data, incomingRequest: data.incomingRequest ?? null, appId: data.appId ?? null, id: randomUUID(), createdAt: new Date() };
         proxyLogs.push(row);
         return row;
       },
@@ -192,6 +268,16 @@ export function createMemoryPrisma() {
       },
       async findUnique({ where }: WhereId) {
         return proxyLogs.find((row) => row.id === where.id) ?? null;
+      },
+      async deleteMany({ where }: { where: { createdAt?: { lt: Date } } }) {
+        const before = proxyLogs.length;
+        if (where.createdAt?.lt) {
+          for (let index = proxyLogs.length - 1; index >= 0; index -= 1) {
+            const row = proxyLogs[index];
+            if (row && row.createdAt < where.createdAt.lt) proxyLogs.splice(index, 1);
+          }
+        }
+        return { count: before - proxyLogs.length };
       }
     },
     proxyApp: {
@@ -234,9 +320,9 @@ export function createMemoryPrisma() {
         mappings.push({ id: input.id, name: input.name, sourceSchemaId: input.sourceSchemaId, targetSchemaId: input.targetSchemaId, currentVersion: input.currentVersion, createdAt: now, updatedAt: now });
         versions.push({ id: randomUUID(), mappingId: input.id, version: input.currentVersion, rules: input.rules, createdAt: now });
       },
-      binding(input: Omit<BindingRow, "createdAt" | "updatedAt"> & { createdAt?: Date }) {
+      binding(input: Omit<BindingRow, "createdAt" | "updatedAt" | "validationMode"> & { validationMode?: string; createdAt?: Date }) {
         const now = input.createdAt ?? new Date();
-        bindings.push({ ...input, createdAt: now, updatedAt: now });
+        bindings.push({ ...input, validationMode: input.validationMode ?? "off", createdAt: now, updatedAt: now });
       },
       app(input: Omit<ProxyAppRow, "createdAt" | "updatedAt" | "lastUsedAt"> & { createdAt?: Date; lastUsedAt?: Date | null }) {
         const now = input.createdAt ?? new Date();

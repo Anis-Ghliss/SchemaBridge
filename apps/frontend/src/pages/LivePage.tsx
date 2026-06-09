@@ -1,5 +1,5 @@
 import { Activity, Pause, Play, Radio } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import type { ProxyRequestLog } from "@schemabridge/shared-types";
 import { listProxyRequests } from "../lib/api";
 import { useAppStore } from "../store";
@@ -21,15 +21,50 @@ const METHOD_COLOR: Record<string, string> = {
 
 type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
 
+interface LiveState {
+  readonly logs: readonly ProxyRequestLog[];
+  readonly paused: boolean;
+  readonly bindingFilter: string;
+  readonly statusFilter: StatusFilter;
+  readonly expanded?: string;
+  readonly error?: string;
+}
+
+type LiveAction =
+  | { readonly type: "loaded"; readonly logs: readonly ProxyRequestLog[] }
+  | { readonly type: "failed"; readonly error: string }
+  | { readonly type: "togglePaused" }
+  | { readonly type: "setBindingFilter"; readonly value: string }
+  | { readonly type: "setStatusFilter"; readonly value: StatusFilter }
+  | { readonly type: "toggleExpanded"; readonly id: string };
+
+const initialState: LiveState = {
+  logs: [],
+  paused: false,
+  bindingFilter: "",
+  statusFilter: "all"
+};
+
+function liveReducer(state: LiveState, action: LiveAction): LiveState {
+  switch (action.type) {
+    case "loaded":
+      return { ...state, logs: action.logs, error: undefined };
+    case "failed":
+      return { ...state, error: action.error };
+    case "togglePaused":
+      return { ...state, paused: !state.paused };
+    case "setBindingFilter":
+      return { ...state, bindingFilter: action.value };
+    case "setStatusFilter":
+      return { ...state, statusFilter: action.value };
+    case "toggleExpanded":
+      return { ...state, expanded: state.expanded === action.id ? undefined : action.id };
+  }
+}
+
 export function LivePage() {
-  const { bindings, setView, selectBinding } = useAppStore();
-  const [logs, setLogs] = useState<readonly ProxyRequestLog[]>([]);
-  const [paused, setPaused] = useState(false);
-  const [bindingFilter, setBindingFilter] = useState<string>("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [expanded, setExpanded] = useState<string | undefined>();
-  const [error, setError] = useState<string | undefined>();
-  const seenIds = useRef<Set<string>>(new Set());
+  const { bindings, apps, setView, selectBinding } = useAppStore();
+  const [{ logs, paused, bindingFilter, statusFilter, expanded, error }, dispatch] = useReducer(liveReducer, initialState);
 
   const refresh = useCallback(async () => {
     try {
@@ -42,11 +77,9 @@ export function LivePage() {
         merged.push(entry);
         if (merged.length >= MAX_ROWS) break;
       }
-      seenIds.current = seen;
-      setLogs(merged);
-      setError(undefined);
+      dispatch({ type: "loaded", logs: merged });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load traffic");
+      dispatch({ type: "failed", error: err instanceof Error ? err.message : "failed to load traffic" });
     }
   }, []);
 
@@ -63,6 +96,7 @@ export function LivePage() {
   }, [paused, refresh]);
 
   const bindingNameById = useMemo(() => new Map(bindings.map((binding) => [binding.id, binding.name])), [bindings]);
+  const appById = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps]);
 
   const filtered = useMemo(() => {
     return logs.filter((log) => {
@@ -80,7 +114,7 @@ export function LivePage() {
         icon={Radio}
         title="No traffic yet"
         description="Wire up a binding and send a request through the proxy to see live traffic here."
-        action={<Button onClick={() => setView("bindings")}>Go to Bindings</Button>}
+        action={<Button onClick={() => void setView("bindings")}>Go to Bindings</Button>}
       />
     );
   }
@@ -95,17 +129,17 @@ export function LivePage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <select className="h-8 rounded-md border border-border bg-white px-2 text-xs" value={bindingFilter} onChange={(event) => setBindingFilter(event.target.value)}>
+          <select className="h-8 rounded-md border border-border bg-white px-2 text-xs" value={bindingFilter} onChange={(event) => dispatch({ type: "setBindingFilter", value: event.target.value })}>
             <option value="">All bindings</option>
             {bindings.map((binding) => <option key={binding.id} value={binding.id}>{binding.name}</option>)}
           </select>
-          <select className="h-8 rounded-md border border-border bg-white px-2 text-xs" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+          <select className="h-8 rounded-md border border-border bg-white px-2 text-xs" value={statusFilter} onChange={(event) => dispatch({ type: "setStatusFilter", value: event.target.value as StatusFilter })}>
             <option value="all">All statuses</option>
             <option value="2xx">2xx success</option>
             <option value="4xx">4xx client error</option>
             <option value="5xx">5xx server error</option>
           </select>
-          <Button variant="secondary" size="sm" onClick={() => setPaused((value) => !value)}>
+          <Button variant="secondary" size="sm" onClick={() => dispatch({ type: "togglePaused" })}>
             {paused ? (<><Play className="h-3.5 w-3.5" /> Resume</>) : (<><Pause className="h-3.5 w-3.5" /> Pause</>)}
           </Button>
         </div>
@@ -119,45 +153,52 @@ export function LivePage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <div className="grid grid-cols-[140px_70px_1fr_90px_90px_1fr] gap-3 border-b border-border bg-muted/50 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="grid grid-cols-[140px_70px_1fr_90px_90px_1fr_1fr] gap-3 border-b border-border bg-muted/50 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             <span>Time</span>
             <span>Method</span>
             <span>Path</span>
             <span>Status</span>
             <span>Duration</span>
+            <span>App</span>
             <span>Binding</span>
           </div>
           {filtered.map((log) => {
             const isExpanded = expanded === log.id;
+            const app = log.appId ? appById.get(log.appId) : undefined;
             return (
               <div key={log.id} className="border-b border-border last:border-b-0">
-                <button
-                  type="button"
-                  className="grid w-full grid-cols-[140px_70px_1fr_90px_90px_1fr] items-center gap-3 px-5 py-3 text-left text-sm hover:bg-muted/30"
-                  onClick={() => setExpanded(isExpanded ? undefined : log.id)}
-                >
-                  <span className="text-xs text-slate-500">{formatTime(log.createdAt)}</span>
-                  <span className={cn("inline-flex h-6 w-fit items-center justify-center rounded px-2 font-mono text-[11px] font-semibold", METHOD_COLOR[log.method] ?? "bg-slate-100 text-slate-700")}>{log.method}</span>
-                  <span className="truncate font-mono text-xs">{log.path}</span>
-                  <span className={cn("inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium", statusColor(log.statusCode))}>{log.statusCode}</span>
-                  <span className="text-xs text-slate-500">{log.durationMs}ms</span>
-                  <span className="truncate text-xs text-slate-600">
-                    {log.bindingId ? (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className="inline-block underline-offset-2 hover:underline"
-                        onClick={(event) => { event.stopPropagation(); setView("bindings"); selectBinding(log.bindingId!); }}
-                      >
-                        {bindingNameById.get(log.bindingId) ?? log.bindingId}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">no match</span>
-                    )}
-                  </span>
-                </button>
+                <div className="grid grid-cols-[140px_70px_1fr_90px_90px_1fr_1fr] items-center gap-3 px-5 py-3 text-left text-sm hover:bg-muted/30">
+                  <button
+                    type="button"
+                    className="contents text-left"
+                    onClick={() => dispatch({ type: "toggleExpanded", id: log.id })}
+                  >
+                    <span className="text-xs text-slate-500">{formatTime(log.createdAt)}</span>
+                    <span className={cn("inline-flex h-6 w-fit items-center justify-center rounded px-2 font-mono text-[11px] font-semibold", METHOD_COLOR[log.method] ?? "bg-slate-100 text-slate-700")}>{log.method}</span>
+                    <span className="truncate font-mono text-xs">{log.path}</span>
+                    <span className={cn("inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium", statusColor(log.statusCode))}>{log.statusCode}</span>
+                    <span className="text-xs text-slate-500">{log.durationMs}ms</span>
+                    <span className="truncate text-xs text-slate-500">{app ? `${app.name} (${app.keyPrefix}...)` : log.appId ? log.appId : "none"}</span>
+                  </button>
+                  {log.bindingId ? (
+                    <button
+                      type="button"
+                      className="truncate text-left text-xs text-slate-600 underline-offset-2 hover:underline"
+                      onClick={() => {
+                        void setView("bindings").then((changed) => {
+                          if (changed) selectBinding(log.bindingId!);
+                        });
+                      }}
+                    >
+                      {bindingNameById.get(log.bindingId) ?? log.bindingId}
+                    </button>
+                  ) : (
+                    <span className="truncate text-xs text-slate-400">no match</span>
+                  )}
+                </div>
                 {isExpanded && (
                   <div className="grid gap-3 border-t border-border bg-muted/30 px-5 py-4 text-xs lg:grid-cols-2">
+                    <Detail label="Incoming request" value={log.incomingRequest} />
                     <Detail label="Transformed request" value={log.transformedRequest} />
                     <Detail label="Response body" value={log.responseBody} />
                     {log.upstreamUrl && (
@@ -170,8 +211,8 @@ export function LivePage() {
                       <div className="lg:col-span-2">
                         <Label>Errors</Label>
                         <ul className="space-y-1">
-                          {log.errors.map((message, index) => (
-                            <li key={index} className="rounded-md bg-rose-50 px-3 py-2 font-mono text-[11px] text-rose-700">{message}</li>
+                          {log.errors.map((message) => (
+                            <li key={`${log.id}-${message}`} className="rounded-md bg-rose-50 px-3 py-2 font-mono text-[11px] text-rose-700">{message}</li>
                           ))}
                         </ul>
                       </div>

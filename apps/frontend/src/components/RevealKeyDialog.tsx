@@ -6,6 +6,7 @@ import { Button } from "./ui/button";
 export function RevealKeyDialog() {
   const { revealedKey, clearRevealedKey } = useAppStore();
   const [copied, setCopied] = useState(false);
+  const [savedForTry, setSavedForTry] = useState(false);
 
   if (!revealedKey) return null;
 
@@ -14,6 +15,13 @@ export function RevealKeyDialog() {
     await navigator.clipboard.writeText(revealedKey.key);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  function useInTryPanel() {
+    if (!revealedKey) return;
+    window.localStorage.setItem("schemabridge:try-api-key", revealedKey.key);
+    setSavedForTry(true);
+    window.setTimeout(() => setSavedForTry(false), 1500);
   }
 
   return (
@@ -30,9 +38,9 @@ export function RevealKeyDialog() {
           <p className="mt-1 text-xs text-slate-500">This is the only time the key will be shown. Store it somewhere safe — you can always rotate if it's lost.</p>
         </div>
         <div className="px-6 py-5">
-          <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             <KeyRound className="h-3 w-3" /> Bearer token
-          </label>
+          </div>
           <div className="flex items-stretch gap-2">
             <code className="flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground">{revealedKey.key}</code>
             <Button onClick={() => void copy()}><Copy className="h-3.5 w-3.5" /> {copied ? "Copied" : "Copy"}</Button>
@@ -40,6 +48,7 @@ export function RevealKeyDialog() {
           <pre className="mt-3 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-50">{`curl -H 'Authorization: Bearer ${revealedKey.key}' \\\n  http://localhost:8080/<your-route>`}</pre>
         </div>
         <div className="flex justify-end gap-2 border-t border-border bg-muted/40 px-6 py-3">
+          <Button variant="secondary" onClick={useInTryPanel}>{savedForTry ? "Ready for Try panel" : "Use in Try panel"}</Button>
           <Button onClick={clearRevealedKey}>I've saved it</Button>
         </div>
       </div>

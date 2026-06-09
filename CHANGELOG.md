@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.2 — 2026-06-09
+
+### Added
+- Binding validation modes: `off`, `warn`, and `strict`, with validation errors shown in traffic traces.
+- App-scoped proxy keys and Try UI support for sending as a selected app without pasting the full key each time.
+- Expanded request traces with incoming request, transformed request, upstream response, app attribution, and errors.
+- Runtime safety controls for body limits, per-client rate limits, upstream timeouts, and request-log retention.
+
+### Changed
+- Mapping creation now starts empty; users explicitly create mapping versions and links.
+- Deleting schemas and mappings now protects dependent resources by default and supports cascade where appropriate.
+- Create/detail navigation returns to the list when switching tabs, with unsaved-change confirmation for drafts.
+
+### Fixed
+- Array wildcard mappings like `items[].sku` to `lineItems[].sku` now transform correctly.
+- Binding Try UI can derive a source payload example from the selected mapping.
+- Empty JSON delete requests no longer trigger confusing Fastify content-type errors.
+
 ## v0.1.1 — 2026-06-08
 
 ### Fixed
@@ -38,8 +56,9 @@ First public release.
 - Single image (`ghcr.io/anis-ghliss/schemabridge`) — backend + frontend in one Fastify process.
 - Demo profile in `docker-compose.yml` brings up two stub upstream services plus a pre-seeded `POST /customers` binding and a `demo-client` app key for one-curl verification.
 - Graceful SIGTERM/SIGINT shutdown; clean exit-0 on `docker compose stop`.
+- Runtime safety controls for body size, per-client rate limits, upstream timeouts, and proxy request log retention are configurable by environment variable.
 
 ### Known limitations (deferred)
 - Engine supports field renames + small transform enum only. A full expression language (jsonata/jq) is the next bet.
-- No multi-tenant isolation, no audit log of admin operations, no automatic retention on `ProxyRequestLog`.
+- No multi-tenant isolation and no audit log of admin operations.
 - Admin auth is a single shared token, not a real user system.

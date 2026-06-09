@@ -36,7 +36,7 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:v0.1.1
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.2
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
@@ -78,18 +78,27 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 | `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings/apps to load on first boot |
 | `PROXY_REQUIRE_AUTH` | `false` | When `true`, the proxy rejects requests without a valid `Authorization: Bearer <key>` belonging to a registered app |
 | `ADMIN_API_KEY` | unset | When set, the admin API/GUI require `Authorization: Bearer <key>`. Leave unset for local dev; set it in any deployed environment. |
+| `PROXY_REQUEST_LOG_RETENTION_DAYS` | unset | Optional retention window for `ProxyRequestLog`; when set to a positive number, old rows are deleted at startup and then daily. |
+| `ADMIN_BODY_LIMIT_BYTES` | `1048576` | Max JSON body size accepted by the admin API. |
+| `PROXY_BODY_LIMIT_BYTES` | `1048576` | Max JSON body size accepted by the runtime proxy. |
+| `PROXY_UPSTREAM_TIMEOUT_MS` | `30000` | Upstream header/body timeout for proxied requests. |
+| `ADMIN_RATE_LIMIT_MAX` | `600` | Max admin requests per client per window; set `0` to disable. |
+| `ADMIN_RATE_LIMIT_WINDOW_MS` | `60000` | Admin rate-limit window size. |
+| `PROXY_RATE_LIMIT_MAX` | `1200` | Max proxy requests per client per window; set `0` to disable. |
+| `PROXY_RATE_LIMIT_WINDOW_MS` | `60000` | Proxy rate-limit window size. |
 
 ### Production checklist
 
 Before pointing real traffic at the bridge:
 
-- [ ] **Pin the image** to a release tag (e.g. `:v0.1.0`), not `:latest`.
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.2`), not `:latest`.
 - [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
 - [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
 - [ ] Set a real Postgres password — don't ship the demo `app/app` credentials.
 - [ ] Mount a persistent volume on the Postgres data directory so mappings survive container recreate.
 - [ ] Put the bridge behind a TLS-terminating reverse proxy (nginx/Caddy/Traefik). The bridge itself only speaks HTTP.
-- [ ] Decide retention for `ProxyRequestLog` — the table grows unbounded; add a cron to delete rows older than your needs.
+- [ ] Tune `PROXY_BODY_LIMIT_BYTES`, `PROXY_UPSTREAM_TIMEOUT_MS`, and proxy/admin rate limits for your traffic profile.
+- [ ] Set `PROXY_REQUEST_LOG_RETENTION_DAYS` to the number of days of proxy traffic history you need, or run your own retention job.
 
 The bridge logs a warning at startup if `PROXY_REQUIRE_AUTH` or `ADMIN_API_KEY` are unset while `NODE_ENV=production`.
 
@@ -158,6 +167,16 @@ Each rule is `sourcePath → targetPath` with dot-notation paths (supports array
 - `transform` — small coercion enum: `string` · `number` · `boolean` · `lowercase` · `uppercase` · `iso-date`.
 
 The transformation engine is framework-neutral and lives in `packages/transformation-engine`, so the same rules drive the GUI preview, the runtime proxy, and any future workers or CLI tools.
+
+## Runtime validation
+
+Each binding can validate payloads against the example schemas attached to its request and optional response mappings:
+
+- `off` — default; preserve current best-effort transformation behavior.
+- `warn` — forward traffic, but record validation errors in the Live traffic log.
+- `strict` — reject invalid inbound payloads with `400`; reject invalid transformed or upstream payloads with `502`.
+
+Validation is example-derived and intentionally lightweight: fields present in the saved schema example are treated as required with matching JSON types, while extra fields are allowed.
 
 ## Workspace
 

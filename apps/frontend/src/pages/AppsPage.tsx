@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { EmptyState } from "../components/EmptyState";
 import { cn } from "../lib/utils";
+import { useUnsavedChange } from "../lib/useUnsavedChange";
 
 export function AppsPage() {
   const { apps, selectedAppId } = useAppStore();
@@ -88,59 +89,63 @@ function AppList() {
 }
 
 function NewApp({ onCancel }: { readonly onCancel: () => void }) {
-  const { bindings, addApp, selectApp } = useAppStore();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [scope, setScope] = useState<ProxyAppScope>("all");
-  const [selectedBindings, setSelectedBindings] = useState<readonly string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
+  useUnsavedChange("new-app", true);
+  const { bindings, addApp, selectApp, confirmUnsavedChange } = useAppStore();
+  const [draft, setDraft] = useState({ name: "", description: "", scope: "all" as ProxyAppScope, bindingIds: [] as readonly string[] });
+  const [status, setStatus] = useState<{ readonly saving: boolean; readonly error?: string }>({ saving: false });
+  const cancel = async () => {
+    if (await confirmUnsavedChange()) onCancel();
+  };
 
   function toggleBinding(id: string) {
-    setSelectedBindings((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+    setDraft((current) => ({
+      ...current,
+      bindingIds: current.bindingIds.includes(id) ? current.bindingIds.filter((value) => value !== id) : [...current.bindingIds, id]
+    }));
   }
 
   async function save() {
-    setError(undefined);
-    if (name.trim().length === 0) {
-      setError("Give the app a name.");
+    setStatus({ saving: false });
+    if (draft.name.trim().length === 0) {
+      setStatus({ saving: false, error: "Give the app a name." });
       return;
     }
-    if (scope === "selected" && selectedBindings.length === 0) {
-      setError("Pick at least one binding or switch to All bindings.");
+    if (draft.scope === "selected" && draft.bindingIds.length === 0) {
+      setStatus({ saving: false, error: "Pick at least one binding or switch to All bindings." });
       return;
     }
-    setSaving(true);
+    setStatus({ saving: true });
     try {
-      const payload: CreateProxyAppRequest = { name: name.trim(), description: description.trim() || undefined, scope, bindingIds: scope === "selected" ? [...selectedBindings] : [] };
+      const payload: CreateProxyAppRequest = { name: draft.name.trim(), description: draft.description.trim() || undefined, scope: draft.scope, bindingIds: draft.scope === "selected" ? [...draft.bindingIds] : [] };
       const created = await addApp(payload);
       onCancel();
       selectApp(created.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to register app.");
+      setStatus({ saving: false, error: err instanceof Error ? err.message : "Failed to register app." });
+      return;
     } finally {
-      setSaving(false);
+      setStatus((current) => ({ ...current, saving: false }));
     }
   }
 
   return (
     <div className="space-y-5">
-      <button type="button" onClick={onCancel} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
+      <button type="button" onClick={() => void cancel()} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> Back to apps
       </button>
       <Card className="p-5">
         <h2 className="mb-4 text-sm font-semibold">Register app</h2>
         <div className="grid gap-3 lg:grid-cols-2">
-          <Field label="Name"><Input value={name} placeholder="frontend-service" onChange={(event) => setName(event.target.value)} /></Field>
-          <Field label="Description (optional)"><Input value={description} placeholder="Team / purpose" onChange={(event) => setDescription(event.target.value)} /></Field>
+          <Field label="Name"><Input value={draft.name} placeholder="frontend-service" onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
+          <Field label="Description (optional)"><Input value={draft.description} placeholder="Team / purpose" onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field>
           <Field label="Scope">
-            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={scope} onChange={(event) => setScope(event.target.value as ProxyAppScope)}>
+            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={draft.scope} onChange={(event) => setDraft({ ...draft, scope: event.target.value as ProxyAppScope })}>
               <option value="all">All bindings</option>
               <option value="selected">Selected bindings</option>
             </select>
           </Field>
         </div>
-        {scope === "selected" && (
+        {draft.scope === "selected" && (
           <div className="mt-4">
             <span className="mb-2 block text-xs font-medium text-slate-600">Pick bindings this key can use</span>
             {bindings.length === 0 ? (
@@ -151,7 +156,7 @@ function NewApp({ onCancel }: { readonly onCancel: () => void }) {
                   <label key={binding.id} className="flex items-start gap-2 rounded-md border border-border bg-white px-3 py-2 text-xs">
                     <input
                       type="checkbox"
-                      checked={selectedBindings.includes(binding.id)}
+                      checked={draft.bindingIds.includes(binding.id)}
                       onChange={() => toggleBinding(binding.id)}
                       className="mt-0.5"
                     />
@@ -165,10 +170,10 @@ function NewApp({ onCancel }: { readonly onCancel: () => void }) {
             )}
           </div>
         )}
-        {error && <p className="mt-3 text-xs text-rose-600">{error}</p>}
+        {status.error && <p className="mt-3 text-xs text-rose-600">{status.error}</p>}
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={saving}>{saving ? "Creating…" : "Create and reveal key"}</Button>
+          <Button variant="ghost" onClick={() => void cancel()}>Cancel</Button>
+          <Button onClick={() => void save()} disabled={status.saving}>{status.saving ? "Creating…" : "Create and reveal key"}</Button>
         </div>
       </Card>
     </div>
@@ -176,10 +181,20 @@ function NewApp({ onCancel }: { readonly onCancel: () => void }) {
 }
 
 function AppDetail({ app }: { readonly app: ProxyApp }) {
-  const { bindings, selectApp, editApp, rotateAppKey, removeApp } = useAppStore();
+  const { bindings, selectApp, editApp, rotateAppKey, removeApp, confirmUnsavedChange, confirmDialog } = useAppStore();
   const [draft, setDraft] = useState({ name: app.name, description: app.description ?? "", scope: app.scope, bindingIds: app.bindingIds, enabled: app.enabled });
   const [saving, setSaving] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const dirty = draft.name !== app.name
+    || draft.description !== (app.description ?? "")
+    || draft.scope !== app.scope
+    || draft.enabled !== app.enabled
+    || draft.bindingIds.length !== app.bindingIds.length
+    || draft.bindingIds.some((id) => !app.bindingIds.includes(id));
+  useUnsavedChange(`app-edit-${app.id}`, dirty);
+  const backToList = async () => {
+    if (await confirmUnsavedChange()) selectApp(undefined);
+  };
 
   function toggleBinding(id: string) {
     setDraft({
@@ -204,7 +219,12 @@ function AppDetail({ app }: { readonly app: ProxyApp }) {
   }
 
   async function rotate() {
-    if (!window.confirm("Rotate this key? The current key stops working immediately.")) return;
+    if (!(await confirmDialog({
+      title: "Rotate this app key?",
+      description: "The current key stops working immediately. A new full key will be shown once.",
+      confirmLabel: "Rotate key",
+      variant: "danger"
+    }))) return;
     setRotating(true);
     try {
       await rotateAppKey(app.id);
@@ -214,13 +234,18 @@ function AppDetail({ app }: { readonly app: ProxyApp }) {
   }
 
   async function remove() {
-    if (!window.confirm(`Delete app "${app.name}"? This cannot be undone.`)) return;
+    if (!(await confirmDialog({
+      title: `Delete app "${app.name}"?`,
+      description: "This cannot be undone. Requests using this app key will stop working.",
+      confirmLabel: "Delete app",
+      variant: "danger"
+    }))) return;
     await removeApp(app.id);
   }
 
   return (
     <div className="space-y-5">
-      <button type="button" onClick={() => selectApp(undefined)} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
+      <button type="button" onClick={() => void backToList()} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> Back to apps
       </button>
 

@@ -29,7 +29,7 @@ Go + Gin remains a credible future option for specialized high-throughput transf
 
 ## Pragmatic Decisions
 
-- Authentication is represented as demo mode only. The backend is structured around injected services so auth can be added as a Fastify plugin later.
+- Authentication is intentionally minimal for the MVP: a shared admin bearer token for the GUI/API and scoped app keys for the runtime proxy. Full users, roles, and audit trails can be added as Fastify plugins later.
 - Mapping version comparison is a JSON diff-ready view for MVP speed. A semantic visual diff can be added later.
 - React Flow stores edges as mapping rules and uses schema leaf paths as stable node IDs.
 - The transformation engine is package-local and framework-neutral so it can later run in workers, CLIs, or edge functions.

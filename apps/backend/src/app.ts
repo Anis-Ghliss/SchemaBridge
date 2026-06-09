@@ -6,6 +6,8 @@ import { existsSync } from "node:fs";
 import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseBearerToken } from "./services/authService.js";
+import { registerInMemoryRateLimit, type RateLimitOptions } from "./services/rateLimiter.js";
+import { ProxyService } from "./services/proxyService.js";
 import {
   CreateMappingRequestSchema,
   CreateProxyAppRequestSchema,
@@ -13,6 +15,7 @@ import {
   CreateSchemaRequestSchema,
   RestoreMappingVersionRequestSchema,
   TransformRequestSchema,
+  UpdateMappingVersionRequestSchema,
   UpdateProxyAppRequestSchema,
   UpdateProxyBindingRequestSchema,
   UpdateSchemaRequestSchema
@@ -24,14 +27,17 @@ export interface AppOptions {
   readonly corsOrigin?: string;
   readonly frontendDist?: string;
   readonly adminApiKey?: string;
+  readonly bodyLimitBytes?: number;
+  readonly rateLimit?: RateLimitOptions;
   readonly onBindingsChanged?: () => void | Promise<void>;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
-  const app = fastify({ logger: true });
+  const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
   const repository = new SchemaBridgeRepository(options.prisma);
 
   app.register(cors, { origin: options.corsOrigin ?? true });
+  if (options.rateLimit) registerInMemoryRateLimit(app, options.rateLimit);
 
   if (options.adminApiKey) {
     const expected = options.adminApiKey;
@@ -88,12 +94,15 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
 
   app.delete("/schemas/:id", async (request, reply) => {
     const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const query = parseBody(DeleteQuerySchema, request.query);
     if (!params.success) return reply.code(400).send({ errors: params.error });
-    const result = await repository.deleteSchema(params.data.id);
+    if (!query.success) return reply.code(400).send({ errors: query.error });
+    const result = await repository.deleteSchema(params.data.id, { cascade: query.data.cascade === "true" });
     if (!result.ok) {
       if (result.conflict === "not-found") return reply.code(404).send({ error: "Schema not found" });
       return reply.code(409).send({ error: result.conflict });
     }
+    await onBindingsChanged?.();
     return reply.code(204).send();
   });
 
@@ -116,12 +125,15 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
 
   app.delete("/mappings/:id", async (request, reply) => {
     const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const query = parseBody(DeleteQuerySchema, request.query);
     if (!params.success) return reply.code(400).send({ errors: params.error });
-    const result = await repository.deleteMapping(params.data.id);
+    if (!query.success) return reply.code(400).send({ errors: query.error });
+    const result = await repository.deleteMapping(params.data.id, { cascade: query.data.cascade === "true" });
     if (!result.ok) {
       if (result.conflict === "not-found") return reply.code(404).send({ error: "Mapping not found" });
       return reply.code(409).send({ error: result.conflict });
     }
+    await onBindingsChanged?.();
     return reply.code(204).send();
   });
 
@@ -134,6 +146,19 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     if (validationErrors.length > 0) return reply.code(400).send({ errors: validationErrors });
     const mapping = await repository.createMappingVersion(params.data.id, body.data.rules);
     if (!mapping) return reply.code(404).send({ error: "Mapping not found" });
+    await onBindingsChanged?.();
+    return mapping;
+  });
+
+  app.patch("/mappings/:id/versions/current", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const body = parseBody(UpdateMappingVersionRequestSchema, request.body);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    if (!body.success) return reply.code(400).send({ errors: body.error });
+    const validationErrors = validateMappingRules(body.data.rules);
+    if (validationErrors.length > 0) return reply.code(400).send({ errors: validationErrors });
+    const mapping = await repository.updateCurrentMappingVersion(params.data.id, body.data.rules);
+    if (!mapping) return reply.code(404).send({ error: "Mapping version not found" });
     await onBindingsChanged?.();
     return mapping;
   });
@@ -192,6 +217,53 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     return reply.code(204).send();
   });
 
+  app.post("/bindings/:id/probe", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    const body = parseBody(ProbeBindingRequestSchema, request.body);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    if (!body.success) return reply.code(400).send({ errors: body.error });
+
+    const activeBindings = await repository.listActiveBindings();
+    const active = activeBindings.find((entry) => entry.binding.id === params.data.id);
+    if (!active) return reply.code(404).send({ error: "Binding not found or disabled" });
+
+    const appId = body.data.appId ?? null;
+    if (appId) {
+      const proxyApp = await repository.getProxyApp(appId);
+      if (!proxyApp) return reply.code(404).send({ error: "App not found" });
+      if (!proxyApp.enabled) return reply.code(403).send({ error: "app is disabled" });
+      if (proxyApp.scope === "selected" && !proxyApp.bindingIds.includes(active.binding.id)) {
+        return reply.code(403).send({ error: "api key not authorized for this binding" });
+      }
+    }
+
+    const method = active.binding.method === "*" ? "POST" : active.binding.method;
+    const path = concretizePath(active.binding.pathPattern);
+    const proxyService = new ProxyService(repository);
+    const startedAt = Date.now();
+    const result = await proxyService.forward(active, {
+      method,
+      path,
+      query: "",
+      headers: { "content-type": "application/json" },
+      body: body.data.input
+    });
+    await repository.recordProxyRequest({
+      bindingId: active.binding.id,
+      appId,
+      method,
+      path,
+      statusCode: result.statusCode,
+      durationMs: Date.now() - startedAt,
+      upstreamUrl: result.trace.upstreamUrl,
+      incomingRequest: body.data.input,
+      transformedRequest: result.trace.transformedRequest,
+      responseBody: result.body,
+      errors: result.trace.errors
+    });
+    return { status: result.statusCode, headers: result.headers, body: result.body };
+  });
+
   app.get("/apps", async () => repository.listProxyApps());
 
   app.get("/apps/:id", async (request, reply) => {
@@ -248,6 +320,19 @@ function parseBody<T>(schema: z.ZodType<T>, value: unknown): { readonly success:
   const result = schema.safeParse(value);
   if (result.success) return { success: true, data: result.data };
   return { success: false, error: result.error.errors.map((issue) => `${issue.path.join(".")}: ${issue.message}`) };
+}
+
+const DeleteQuerySchema = z.object({
+  cascade: z.enum(["true", "false"]).optional()
+});
+
+const ProbeBindingRequestSchema = z.object({
+  appId: z.string().uuid().nullable().optional(),
+  input: z.unknown()
+});
+
+function concretizePath(pattern: string): string {
+  return pattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
 }
 
 function isPublicRoute(method: string, url: string): boolean {

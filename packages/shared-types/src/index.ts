@@ -90,6 +90,11 @@ export const CreateMappingRequestSchema = z.object({
 });
 export type CreateMappingRequest = z.infer<typeof CreateMappingRequestSchema>;
 
+export const UpdateMappingVersionRequestSchema = z.object({
+  rules: z.array(MappingRuleSchema)
+});
+export type UpdateMappingVersionRequest = z.infer<typeof UpdateMappingVersionRequestSchema>;
+
 export const TransformRequestSchema = z.object({
   input: JsonValueSchema,
   rules: z.array(MappingRuleSchema)
@@ -108,8 +113,11 @@ export const RestoreMappingVersionRequestSchema = z.object({
 });
 export type RestoreMappingVersionRequest = z.infer<typeof RestoreMappingVersionRequestSchema>;
 
-export const ProxyBindingMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "*"]);
+export const ProxyBindingMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "*"]);
 export type ProxyBindingMethod = z.infer<typeof ProxyBindingMethodSchema>;
+
+export const ProxyBindingValidationModeSchema = z.enum(["off", "warn", "strict"]);
+export type ProxyBindingValidationMode = z.infer<typeof ProxyBindingValidationModeSchema>;
 
 export const ProxyBindingSchema = z.object({
   id: z.string().uuid(),
@@ -120,6 +128,7 @@ export const ProxyBindingSchema = z.object({
   mappingId: z.string().uuid(),
   responseMappingId: z.string().uuid().nullable(),
   forwardHeaders: z.array(z.string().min(1)),
+  validationMode: ProxyBindingValidationModeSchema,
   enabled: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
@@ -134,6 +143,7 @@ export const CreateProxyBindingRequestSchema = z.object({
   mappingId: z.string().uuid(),
   responseMappingId: z.string().uuid().nullable().optional(),
   forwardHeaders: z.array(z.string().min(1)).optional(),
+  validationMode: ProxyBindingValidationModeSchema.optional(),
   enabled: z.boolean().optional()
 });
 export type CreateProxyBindingRequest = z.infer<typeof CreateProxyBindingRequestSchema>;
@@ -150,6 +160,7 @@ export const ProxyRequestLogSchema = z.object({
   statusCode: z.number().int(),
   durationMs: z.number().int().nonnegative(),
   upstreamUrl: z.string().nullable(),
+  incomingRequest: JsonValueSchema.nullable(),
   transformedRequest: JsonValueSchema.nullable(),
   responseBody: JsonValueSchema.nullable(),
   errors: z.array(z.string()),

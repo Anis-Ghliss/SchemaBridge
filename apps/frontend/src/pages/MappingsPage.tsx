@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, Check, GitBranch, Plus, RotateCcw, Save, Search, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Eraser, GitBranch, Plus, RotateCcw, Save, Search, Sparkles, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { parseSchema } from "@schemabridge/schema-parser";
 import { useAppStore } from "../store";
 import { Card } from "../components/ui/card";
@@ -9,6 +9,7 @@ import { SchemaTree } from "../components/SchemaTree";
 import { MappingCanvas } from "../components/MappingCanvas";
 import { EmptyState } from "../components/EmptyState";
 import { suggestMappings } from "../lib/suggestMappings";
+import { useUnsavedChange } from "../lib/useUnsavedChange";
 
 export function MappingsPage() {
   const { mappings, selectedMappingId } = useAppStore();
@@ -99,66 +100,65 @@ function MappingList() {
 }
 
 function NewMapping({ onCancel }: { readonly onCancel: () => void }) {
-  const { schemas, createMapping, selectMapping } = useAppStore();
-  const [name, setName] = useState("");
-  const [sourceId, setSourceId] = useState(schemas[0]?.id ?? "");
-  const [targetId, setTargetId] = useState(schemas[1]?.id ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
+  useUnsavedChange("new-mapping", true);
+  const { schemas, createMapping, selectMapping, confirmUnsavedChange } = useAppStore();
+  const [draft, setDraft] = useState({ name: "", sourceId: schemas[0]?.id ?? "", targetId: schemas[1]?.id ?? "" });
+  const [status, setStatus] = useState<{ readonly saving: boolean; readonly error?: string }>({ saving: false });
+  const cancel = async () => {
+    if (await confirmUnsavedChange()) onCancel();
+  };
 
-  const canSave = name.trim().length > 0 && sourceId && targetId && sourceId !== targetId;
+  const canSave = draft.name.trim().length > 0 && draft.sourceId && draft.targetId && draft.sourceId !== draft.targetId;
 
   async function save() {
-    setError(undefined);
+    setStatus({ saving: false });
     if (!canSave) {
-      setError("Pick a name, source, and target (must differ).");
+      setStatus({ saving: false, error: "Pick a name, source, and target (must differ)." });
       return;
     }
-    setSaving(true);
+    setStatus({ saving: true });
     try {
-      const source = schemas.find((s) => s.id === sourceId)!;
-      const target = schemas.find((s) => s.id === targetId)!;
-      const suggested = suggestMappings(source.fields, target.fields);
-      const mapping = await createMapping({ name: name.trim(), sourceSchemaId: sourceId, targetSchemaId: targetId, rules: suggested });
+      const mapping = await createMapping({ name: draft.name.trim(), sourceSchemaId: draft.sourceId, targetSchemaId: draft.targetId, rules: [] });
       onCancel();
       selectMapping(mapping.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save mapping.");
+      setStatus({ saving: false, error: err instanceof Error ? err.message : "Failed to save mapping." });
+      return;
     } finally {
-      setSaving(false);
+      setStatus((current) => ({ ...current, saving: false }));
     }
   }
 
   return (
     <div className="space-y-5">
-      <button type="button" onClick={onCancel} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
+      <button type="button" onClick={() => void cancel()} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> Back to mappings
       </button>
       <Card className="p-5">
         <h2 className="mb-4 text-sm font-semibold">New mapping</h2>
         <div className="grid gap-3 lg:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-xs lg:col-span-2">
-            <span className="font-medium text-slate-600">Name</span>
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Customer v1 → v2" />
-          </label>
+          <div className="flex flex-col gap-1.5 text-xs lg:col-span-2">
+            <label htmlFor="new-mapping-name" className="font-medium text-slate-600">Name</label>
+            <Input id="new-mapping-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Customer v1 → v2" />
+          </div>
           <label className="flex flex-col gap-1.5 text-xs">
             <span className="font-medium text-slate-600">Source schema</span>
-            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={draft.sourceId} onChange={(event) => setDraft({ ...draft, sourceId: event.target.value })}>
               {schemas.map((schema) => <option key={schema.id} value={schema.id}>{schema.name}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1.5 text-xs">
             <span className="font-medium text-slate-600">Target schema</span>
-            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+            <select className="h-10 rounded-md border border-border bg-white px-3 text-sm" value={draft.targetId} onChange={(event) => setDraft({ ...draft, targetId: event.target.value })}>
               {schemas.map((schema) => <option key={schema.id} value={schema.id}>{schema.name}</option>)}
             </select>
           </label>
         </div>
-        <p className="mt-3 text-[11px] text-slate-500">Field mappings will be suggested by name similarity — you can adjust them after creation.</p>
-        {error && <p className="mt-3 text-xs text-rose-600">{error}</p>}
+        <p className="mt-3 text-[11px] text-slate-500">The mapping starts empty. Connect source fields to target fields after creation.</p>
+        {status.error && <p className="mt-3 text-xs text-rose-600">{status.error}</p>}
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={!canSave || saving}>{saving ? "Saving…" : "Create mapping"}</Button>
+          <Button variant="ghost" onClick={() => void cancel()}>Cancel</Button>
+          <Button onClick={() => void save()} disabled={!canSave || status.saving}>{status.saving ? "Saving…" : "Create mapping"}</Button>
         </div>
       </Card>
     </div>
@@ -166,57 +166,92 @@ function NewMapping({ onCancel }: { readonly onCancel: () => void }) {
 }
 
 function MappingDetail({ mappingId }: { readonly mappingId: string }) {
-  const { mappings, schemas, bindings, activeMapping, rules, selectMapping, selectBinding, setView, setRules, setActiveMapping, saveVersion, restoreVersion, removeMapping } = useAppStore();
+  const { mappings, schemas, bindings, rules, selectMapping, selectBinding, setView, setRules, saveMapping, createVersion, restoreVersion, removeMapping, confirmUnsavedChange, confirmDialog, alertDialog } = useAppStore();
   const mapping = mappings.find((item) => item.id === mappingId);
   const [selected, setSelected] = useState<string>();
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (mapping && activeMapping?.id !== mapping.id) setActiveMapping(mapping.id);
-  }, [mapping, activeMapping, setActiveMapping]);
+  const [pendingAction, setPendingAction] = useState<"save" | "version">();
 
   const persistedRules = useMemo(() => mapping?.versions.find((version) => version.version === mapping.currentVersion)?.rules ?? [], [mapping]);
   const isDirty = useMemo(() => !rulesEqual(rules, persistedRules), [rules, persistedRules]);
+  useUnsavedChange(`mapping-edit-${mappingId}`, isDirty);
 
   if (!mapping) return null;
   const source = schemas.find((s) => s.id === mapping.sourceSchemaId);
   const target = schemas.find((s) => s.id === mapping.targetSchemaId);
-  const dependents = bindings.filter((b) => b.mappingId === mapping.id || b.responseMappingId === mapping.id);
+  const requestDependents = bindings.filter((binding) => binding.mappingId === mapping.id);
+  const responseOnlyDependents = bindings.filter((binding) => binding.responseMappingId === mapping.id && binding.mappingId !== mapping.id);
+  const dependents = [...requestDependents, ...responseOnlyDependents];
 
   if (!source || !target) return null;
   const sourceFields = source.fields ?? parseSchema(source.content).fields;
   const targetFields = target.fields ?? parseSchema(target.content).fields;
+  const backToList = async () => {
+    if (await confirmUnsavedChange()) selectMapping(undefined);
+  };
 
   function suggest() {
     setRules(suggestMappings(sourceFields, targetFields));
   }
 
+  async function clearRules() {
+    if (rules.length === 0) return;
+    if (!(await confirmDialog({
+      title: "Clear all mapping rules?",
+      description: "This removes every link in the current editor. Save the mapping to persist the change.",
+      confirmLabel: "Clear rules",
+      variant: "danger"
+    }))) return;
+    setRules([]);
+  }
+
   async function save() {
-    setSaving(true);
+    setPendingAction("save");
     try {
-      await saveVersion();
+      await saveMapping();
     } finally {
-      setSaving(false);
+      setPendingAction(undefined);
+    }
+  }
+
+  async function createNewVersion() {
+    setPendingAction("version");
+    try {
+      await createVersion();
+    } finally {
+      setPendingAction(undefined);
     }
   }
 
   async function remove() {
     if (!mapping) return;
+    const cascade = dependents.length > 0;
     if (dependents.length > 0) {
-      window.alert(`Can't delete — used by ${dependents.length} binding(s). Remove or repoint them first.`);
+      const requestNames = requestDependents.map((binding) => binding.name).join(", ") || "None";
+      const responseNames = responseOnlyDependents.map((binding) => binding.name).join(", ") || "None";
+      if (!(await confirmDialog({
+        title: `Delete mapping "${mapping.name}"?`,
+        description: `Request bindings that use this mapping will be deleted: ${requestNames}\n\nBindings that use it only for responses will keep their route, but their response mapping will be cleared: ${responseNames}`,
+        confirmLabel: "Delete mapping",
+        variant: "danger"
+      }))) return;
+    } else if (!(await confirmDialog({
+      title: `Delete mapping "${mapping.name}"?`,
+      description: "This cannot be undone.",
+      confirmLabel: "Delete mapping",
+      variant: "danger"
+    }))) {
       return;
     }
-    if (!window.confirm(`Delete mapping "${mapping.name}"?`)) return;
     try {
-      await removeMapping(mapping.id);
+      await removeMapping(mapping.id, { cascade });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Failed to delete.");
+      await alertDialog({ title: "Could not delete mapping", description: err instanceof Error ? err.message : "Failed to delete.", variant: "danger" });
     }
   }
 
   return (
     <div className="space-y-5">
-      <button type="button" onClick={() => selectMapping(undefined)} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
+      <button type="button" onClick={() => void backToList()} className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> Back to mappings
       </button>
 
@@ -240,10 +275,16 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
           <Button variant="secondary" size="sm" onClick={suggest}>
             <Sparkles className="h-3.5 w-3.5" /> Suggest by name
           </Button>
-          <Button size="sm" onClick={() => void save()} disabled={!isDirty || saving}>
-            <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save mapping"}
+          <Button variant="secondary" size="sm" onClick={() => void clearRules()} disabled={rules.length === 0}>
+            <Eraser className="h-3.5 w-3.5" /> Clear rules
           </Button>
-          <Button variant="danger" size="sm" onClick={() => void remove()} disabled={dependents.length > 0} title={dependents.length > 0 ? `Used by ${dependents.length} binding(s)` : undefined}>
+          <Button size="sm" onClick={() => void save()} disabled={!isDirty || pendingAction !== undefined}>
+            <Save className="h-3.5 w-3.5" /> {pendingAction === "save" ? "Saving…" : "Save mapping"}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void createNewVersion()} disabled={pendingAction !== undefined}>
+            <GitBranch className="h-3.5 w-3.5" /> {pendingAction === "version" ? "Creating…" : "Create version"}
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => void remove()} title={dependents.length > 0 ? `Used by ${dependents.length} binding(s)` : undefined}>
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </Button>
         </div>
@@ -288,7 +329,7 @@ function MappingDetail({ mappingId }: { readonly mappingId: string }) {
               <li key={binding.id}>
                 <button
                   type="button"
-                  onClick={() => { setView("bindings"); selectBinding(binding.id); }}
+                  onClick={() => { void setView("bindings").then((changed) => { if (changed) selectBinding(binding.id); }); }}
                   className="flex w-full items-center gap-3 rounded-md border border-border bg-white px-3 py-2 text-left text-xs hover:bg-muted"
                 >
                   <span className="font-mono text-[11px] text-slate-600">{binding.method} {binding.pathPattern}</span>
