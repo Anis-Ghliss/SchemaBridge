@@ -332,7 +332,7 @@ const ProbeBindingRequestSchema = z.object({
 });
 
 function concretizePath(pattern: string): string {
-  return pattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
+  return pattern.replace(/:([A-Za-z0-9_]+)/g, "sample");
 }
 
 function isPublicRoute(method: string, url: string): boolean {

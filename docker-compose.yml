@@ -25,41 +25,14 @@ services:
       DATABASE_URL: postgresql://schemabridge:schemabridge@postgres:5432/schemabridge?schema=public
       PORT: 4000
       PROXY_PORT: 8080
-      BINDINGS_SEED_FILE: /seed/bindings.json
       PROXY_REQUIRE_AUTH: ${PROXY_REQUIRE_AUTH:-false}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
-    volumes:
-      - ./examples/seed:/seed:ro
     ports:
       - "4000:4000"
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
-
-  service-a:
-    profiles: ["demo"]
-    build:
-      context: ./examples/services
-      dockerfile: Dockerfile
-    environment:
-      SERVICE_NAME: service-a
-      PORT: 8081
-      MODE: source
-    ports:
-      - "8081:8081"
-
-  service-b:
-    profiles: ["demo"]
-    build:
-      context: ./examples/services
-      dockerfile: Dockerfile
-    environment:
-      SERVICE_NAME: service-b
-      PORT: 8082
-      MODE: target
-    ports:
-      - "8082:8082"
 
 volumes:
   postgres-data:

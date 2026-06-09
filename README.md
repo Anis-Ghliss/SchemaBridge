@@ -36,7 +36,7 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:v0.1.2
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.3
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
@@ -44,10 +44,6 @@ services:
       DATABASE_URL: postgres://app:${BRIDGE_DB_PASSWORD:?set in .env}@bridge-db:5432/schemabridge
       ADMIN_API_KEY: ${BRIDGE_ADMIN_KEY:?set in .env}
       PROXY_REQUIRE_AUTH: "true"
-      # Optional: pre-seed schemas, mappings, bindings, apps on first boot
-      # BINDINGS_SEED_FILE: /seed/bindings.json
-    # volumes:
-    #   - ./schemabridge-seed.json:/seed/bindings.json:ro
     restart: on-failure
     depends_on: [bridge-db]
 
@@ -75,7 +71,6 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 | `PORT` | `4000` | Admin API + GUI port |
 | `PROXY_PORT` | `8080` | Runtime proxy port |
 | `CORS_ORIGIN` | `*` | CORS allow-list for the admin API |
-| `BINDINGS_SEED_FILE` | unset | JSON file with schemas/mappings/bindings/apps to load on first boot |
 | `PROXY_REQUIRE_AUTH` | `false` | When `true`, the proxy rejects requests without a valid `Authorization: Bearer <key>` belonging to a registered app |
 | `ADMIN_API_KEY` | unset | When set, the admin API/GUI require `Authorization: Bearer <key>`. Leave unset for local dev; set it in any deployed environment. |
 | `PROXY_REQUEST_LOG_RETENTION_DAYS` | unset | Optional retention window for `ProxyRequestLog`; when set to a positive number, old rows are deleted at startup and then daily. |
@@ -91,10 +86,10 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 
 Before pointing real traffic at the bridge:
 
-- [ ] **Pin the image** to a release tag (e.g. `:v0.1.2`), not `:latest`.
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.3`), not `:latest`.
 - [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
 - [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
-- [ ] Set a real Postgres password — don't ship the demo `app/app` credentials.
+- [ ] Set a real Postgres password.
 - [ ] Mount a persistent volume on the Postgres data directory so mappings survive container recreate.
 - [ ] Put the bridge behind a TLS-terminating reverse proxy (nginx/Caddy/Traefik). The bridge itself only speaks HTTP.
 - [ ] Tune `PROXY_BODY_LIMIT_BYTES`, `PROXY_UPSTREAM_TIMEOUT_MS`, and proxy/admin rate limits for your traffic profile.
@@ -115,26 +110,24 @@ curl -X POST http://localhost:8080/customers \
 
 Disabled apps and out-of-scope routes return `403`; missing or unknown keys return `401`. Every proxied request is attributed to the app that authorized it in the Live traffic tab.
 
-## Try it locally (with built-in demo)
+## Run Locally
 
-The repo includes a `demo` compose profile with two stub upstream services and a pre-seeded `POST /customers` binding:
+Start SchemaBridge with a blank Postgres database:
 
 ```bash
-docker compose --profile demo up --build
+docker compose up --build
 ```
 
 - GUI + Admin: <http://localhost:4000>
 - Runtime proxy: <http://localhost:8080>
 
-Send a v1-shaped payload through the proxy:
+From there, create your first real route:
 
-```bash
-curl -X POST http://localhost:8080/customers \
-  -H 'content-type: application/json' \
-  -d '{"customerId":"c-42","customerName":"Ada","customerEmail":"ada@example.com","customerSignupDate":"2026-01-02"}'
-```
-
-The bridge reshapes the body into the v2 layout (including ISO-date normalization), forwards to the upstream, then maps the response back to v1 shape before returning it to you.
+1. Create a source schema from a representative incoming JSON payload.
+2. Create a target schema from the JSON shape your destination service expects.
+3. Create a mapping and connect fields explicitly.
+4. Create a binding with the proxy path and destination service URL.
+5. Register an app key if `PROXY_REQUIRE_AUTH=true`, then send traffic to `http://localhost:8080/<your-path>`.
 
 ## Screenshots
 
@@ -185,8 +178,6 @@ Validation is example-derived and intentionally lightweight: fields present in t
 - `packages/shared-types` — Zod contracts shared by GUI and API
 - `packages/schema-parser` — JSON-example to field-tree parser
 - `packages/transformation-engine` — payload transformer (path rename + transform enum)
-- `examples/services` — stub upstreams used by the `demo` profile
-- `examples/seed` — bootstrap file consumed via `BINDINGS_SEED_FILE`
 - `docs` — architecture, API (OpenAPI), local setup, roadmap
 
 ## Verification

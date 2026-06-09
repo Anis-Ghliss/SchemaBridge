@@ -25,7 +25,7 @@ SchemaBridge uses:
 
 The product is centered on JSON schemas, mappings, and validation contracts that must be reused by the UI and API. TypeScript + Fastify lets the MVP share Zod contracts and domain packages directly with the React frontend. That reduces duplicate validation, shortens the delivery loop, and keeps transformation logic portable.
 
-Go + Gin remains a credible future option for specialized high-throughput transformation workers, but it is not the best first stack for a demoable SaaS MVP.
+Go + Gin remains a credible future option for specialized high-throughput transformation workers, but it is not the best first stack for a SaaS MVP.
 
 ## Pragmatic Decisions
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.3 — 2026-06-09
+
+### Removed
+- Removed the bundled local bootstrap profile, preload-data path, and prefilled payload shortcuts so new installs start from a blank real scenario.
+
 ## v0.1.2 — 2026-06-09
 
 ### Added
@@ -54,7 +59,6 @@ First public release.
 
 ### Packaging
 - Single image (`ghcr.io/anis-ghliss/schemabridge`) — backend + frontend in one Fastify process.
-- Demo profile in `docker-compose.yml` brings up two stub upstream services plus a pre-seeded `POST /customers` binding and a `demo-client` app key for one-curl verification.
 - Graceful SIGTERM/SIGINT shutdown; clean exit-0 on `docker compose stop`.
 - Runtime safety controls for body size, per-client rate limits, upstream timeouts, and proxy request log retention are configurable by environment variable.
 

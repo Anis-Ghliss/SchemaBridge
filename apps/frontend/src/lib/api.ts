@@ -164,7 +164,7 @@ function methodHasBody(method: string): boolean {
 }
 
 function concretizePath(pattern: string): string {
-  return pattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
+  return pattern.replace(/:([A-Za-z0-9_]+)/g, "sample");
 }
 
 const ADMIN_TOKEN_STORAGE = "schemabridge:admin-token";

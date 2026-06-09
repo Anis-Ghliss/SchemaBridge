@@ -22,7 +22,6 @@ import {
   updateProxyApp,
   updateSchema
 } from "./lib/api";
-import { sampleSource, sampleTarget } from "./lib/samples";
 
 export type ResourceView = "schemas" | "mappings" | "bindings" | "apps" | "live";
 
@@ -91,7 +90,6 @@ interface AppState {
   readonly rotateAppKey: (id: string) => Promise<ProxyAppWithKey>;
   readonly removeApp: (id: string) => Promise<void>;
   readonly clearRevealedKey: () => void;
-  readonly loadSample: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -273,27 +271,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearRevealedKey() {
     set({ revealedKey: undefined });
   },
-  async loadSample() {
-    set({ status: "Loading sample…", error: undefined });
-    const [sourceSchema, targetSchema] = await Promise.all([
-      createSchema({ name: "Customer API v1", content: sampleSource }),
-      createSchema({ name: "Customer API v2", content: sampleTarget })
-    ]);
-    const rules: MappingRule[] = [
-      { id: crypto.randomUUID(), sourcePath: "customerName", targetPath: "customer.name" },
-      { id: crypto.randomUUID(), sourcePath: "customerEmail", targetPath: "customer.email" },
-      { id: crypto.randomUUID(), sourcePath: "shippingCity", targetPath: "customer.address.city" },
-      { id: crypto.randomUUID(), sourcePath: "plan", targetPath: "subscription.tier" }
-    ];
-    const mapping = await createMapping({ name: "Customer v1 → v2", sourceSchemaId: sourceSchema.id, targetSchemaId: targetSchema.id, rules });
-    set({
-      activeMapping: mapping,
-      schemas: [sourceSchema, targetSchema, ...get().schemas],
-      mappings: [mapping, ...get().mappings],
-      rules,
-      status: "Sample loaded — wire up a binding to test it"
-    });
-  }
 }));
 
 function stripKey(result: ProxyAppWithKey): ProxyApp {

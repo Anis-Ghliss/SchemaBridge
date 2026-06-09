@@ -3,7 +3,6 @@ import { useMemo, useRef, useState } from "react";
 import type { CreateProxyBindingRequest, JsonValue, MappingRule, ProxyBindingMethod, SchemaDocument } from "@schemabridge/shared-types";
 import { parseJsonText, parseSchema } from "@schemabridge/schema-parser";
 import { createBinding, createMapping, createSchema } from "../lib/api";
-import { sampleSource, sampleTarget } from "../lib/samples";
 import { suggestMappings } from "../lib/suggestMappings";
 import { useAppStore } from "../store";
 import { Button } from "./ui/button";
@@ -28,9 +27,8 @@ interface DraftSchema {
   readonly error?: string;
 }
 
-function emptyDraft(name: string, sample: JsonValue): DraftSchema {
-  const text = JSON.stringify(sample, null, 2);
-  return { name, text, content: sample };
+function emptyDraft(name: string): DraftSchema {
+  return { name, text: "" };
 }
 
 export function QuickStartModal() {
@@ -38,18 +36,18 @@ export function QuickStartModal() {
   const [flow, setFlow] = useState({ step: 1, busy: false, error: undefined as string | undefined });
 
   const [schemaDrafts, setSchemaDrafts] = useState(() => ({
-    oldShape: emptyDraft("Service A — current payload", sampleSource),
-    newShape: emptyDraft("Service B — expected payload", sampleTarget)
+    oldShape: emptyDraft("Source payload"),
+    newShape: emptyDraft("Target payload")
   }));
   const savedSourceRef = useRef<SchemaDocument | undefined>(undefined);
   const savedTargetRef = useRef<SchemaDocument | undefined>(undefined);
   const [rules, setRules] = useState<readonly MappingRule[]>([]);
   const mappingIdRef = useRef<string | undefined>(undefined);
   const [bindingDraft, setBindingDraft] = useState<{ readonly name: string; readonly method: ProxyBindingMethod; readonly pathPattern: string; readonly upstreamBaseUrl: string }>({
-    name: "Service B — POST /endpoint",
+    name: "POST /endpoint",
     method: "POST",
     pathPattern: "/endpoint",
-    upstreamBaseUrl: "http://service-b:8082"
+    upstreamBaseUrl: ""
   });
 
   const { step, busy, error } = flow;
@@ -119,8 +117,8 @@ export function QuickStartModal() {
 
         <div className="flex-1 overflow-auto px-8 pb-4">
           {step === 1 && <Welcome onSkip={closeQuickStart} />}
-          {step === 2 && <SchemaStep heading="The old payload — what Service A still sends" body="Paste a representative request body. This is what your existing callers produce today." draft={oldShape} setDraft={(next) => setSchemaDrafts((current) => ({ ...current, oldShape: next }))} sample={sampleSource} schemaRole="source" />}
-          {step === 3 && <SchemaStep heading="The new payload — what Service B now expects" body="Paste the new shape Service B requires. SchemaBridge will translate from old → new for you." draft={newShape} setDraft={(next) => setSchemaDrafts((current) => ({ ...current, newShape: next }))} sample={sampleTarget} schemaRole="target" />}
+          {step === 2 && <SchemaStep heading="The incoming payload" body="Paste a representative request body from the service that will call SchemaBridge." draft={oldShape} setDraft={(next) => setSchemaDrafts((current) => ({ ...current, oldShape: next }))} schemaRole="source" />}
+          {step === 3 && <SchemaStep heading="The destination payload" body="Paste the JSON shape your destination service expects to receive." draft={newShape} setDraft={(next) => setSchemaDrafts((current) => ({ ...current, newShape: next }))} schemaRole="target" />}
           {step === 4 && <ConnectStep sourceFields={sourceFields} targetFields={targetFields} rules={rules} onChange={setRules} />}
           {step === 5 && <DeployStep draft={bindingDraft} setDraft={setBindingDraft} />}
           {error && <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
@@ -178,15 +176,15 @@ function Welcome({ onSkip }: { readonly onSkip: () => void }) {
       <div className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-slate-700">
         <Sparkles className="h-3 w-3" /> Quick start
       </div>
-      <h2 className="text-xl font-semibold">Two services, two shapes, one bridge.</h2>
+      <h2 className="text-xl font-semibold">Connect two JSON shapes with one bridge.</h2>
       <p className="text-sm text-slate-600">
-        Picture this: <strong>Service A</strong> sends requests in its current shape and <strong>Service B</strong> just changed what it expects. Point Service A at SchemaBridge — and the bridge translates each request before forwarding it to Service B.
+        Point callers at SchemaBridge, map the incoming payload to the destination contract, and forward each request without changing either service.
       </p>
 
       <div className="grid gap-3 lg:grid-cols-3">
-        <Tile icon={Layers3} title="1. Capture both shapes" body="Paste the old and new payloads — that's how the bridge learns what to translate." />
-        <Tile icon={GitBranch} title="2. Connect the fields" body="Choose exactly which old fields should feed each new field." />
-        <Tile icon={Send} title="3. Send traffic through" body="Point Service A at the bridge port. We'll reshape every request and forward it for you." />
+        <Tile icon={Layers3} title="1. Capture both shapes" body="Paste the source and destination payloads so the bridge knows the contracts." />
+        <Tile icon={GitBranch} title="2. Connect the fields" body="Choose exactly which source fields should feed each destination field." />
+        <Tile icon={Send} title="3. Send traffic through" body="Point callers at the bridge port. SchemaBridge reshapes each request before forwarding it." />
       </div>
 
       <p className="text-xs text-slate-500">
@@ -211,21 +209,15 @@ interface SchemaStepProps {
   readonly body: string;
   readonly draft: DraftSchema;
   readonly setDraft: (draft: DraftSchema) => void;
-  readonly sample: JsonValue;
   readonly schemaRole: "source" | "target";
 }
 
-function SchemaStep({ heading, body, draft, setDraft, sample, schemaRole }: SchemaStepProps) {
+function SchemaStep({ heading, body, draft, setDraft, schemaRole }: SchemaStepProps) {
   const nameId = `quickstart-${schemaRole}-schema-name`;
 
   function update(nextName: string, nextText: string) {
     const parsed = parseJsonText(nextText);
     setDraft({ name: nextName, text: nextText, content: parsed.value, error: parsed.error });
-  }
-
-  function loadSample() {
-    const text = JSON.stringify(sample, null, 2);
-    setDraft({ name: draft.name, text, content: sample });
   }
 
   return (
@@ -236,14 +228,11 @@ function SchemaStep({ heading, body, draft, setDraft, sample, schemaRole }: Sche
       </div>
       <div className="flex flex-col gap-1.5 text-xs">
         <label htmlFor={nameId} className="font-medium text-slate-600">Name</label>
-        <Input id={nameId} value={draft.name} onChange={(event) => update(event.target.value, draft.text)} placeholder={schemaRole === "source" ? "Service A — current payload" : "Service B — expected payload"} />
+        <Input id={nameId} value={draft.name} onChange={(event) => update(event.target.value, draft.text)} placeholder={schemaRole === "source" ? "Incoming order payload" : "Destination order payload"} />
       </div>
       <div className="flex flex-col gap-1.5 text-xs">
-        <span className="flex items-center justify-between font-medium text-slate-600">
-          Example payload (JSON)
-          <button type="button" className="text-[11px] font-medium text-foreground hover:underline" onClick={loadSample}>Use sample payload</button>
-        </span>
-        <JsonEditor value={draft.text} onChange={(next) => update(draft.name, next)} label={schemaRole === "source" ? "Old shape" : "New shape"} minHeight="240px" maxHeight="320px" />
+        <span className="font-medium text-slate-600">Payload JSON</span>
+        <JsonEditor value={draft.text} onChange={(next) => update(draft.name, next)} label={schemaRole === "source" ? "Incoming shape" : "Destination shape"} minHeight="240px" maxHeight="320px" />
       </div>
     </div>
   );
@@ -271,7 +260,7 @@ function ConnectStep({ sourceFields, targetFields, rules, onChange }: ConnectSte
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">Connect the fields</h2>
-          <p className="mt-1 text-sm text-slate-500">Each row picks where a target field comes from. Leave fields blank until you decide how they should map.</p>
+          <p className="mt-1 text-sm text-slate-500">Each row picks where a destination field comes from. Leave fields blank until you decide how they should map.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => onChange([])}>Clear</Button>
@@ -281,9 +270,9 @@ function ConnectStep({ sourceFields, targetFields, rules, onChange }: ConnectSte
 
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="grid grid-cols-[1fr_24px_1fr] gap-3 border-b border-border bg-muted/50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          <span>Source field (old shape)</span>
+          <span>Source field</span>
           <span></span>
-          <span>Target field (new shape)</span>
+          <span>Destination field</span>
         </div>
         {targetLeaves.length === 0 ? (
           <p className="px-4 py-6 text-center text-xs text-slate-500">The target schema has no leaf fields — go back and adjust.</p>
@@ -325,7 +314,7 @@ function DeployStep({ draft, setDraft }: DeployStepProps) {
     <div className="space-y-4 py-6">
       <div>
         <h2 className="text-lg font-semibold">Where should the bridge listen?</h2>
-        <p className="mt-1 text-sm text-slate-500">Pick the route Service A will hit and tell the bridge where to forward the transformed request.</p>
+        <p className="mt-1 text-sm text-slate-500">Pick the route callers will hit and tell the bridge where to forward the transformed request.</p>
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <Field label="Binding name"><Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
@@ -335,7 +324,7 @@ function DeployStep({ draft, setDraft }: DeployStepProps) {
           </select>
         </Field>
         <Field label="Path pattern"><Input value={draft.pathPattern} placeholder="/customers/:id" onChange={(event) => setDraft({ ...draft, pathPattern: event.target.value })} /></Field>
-        <Field label="Service B URL"><Input value={draft.upstreamBaseUrl} placeholder="http://service-b:8082" onChange={(event) => setDraft({ ...draft, upstreamBaseUrl: event.target.value })} /></Field>
+        <Field label="Destination service URL"><Input value={draft.upstreamBaseUrl} placeholder="https://api.internal.example" onChange={(event) => setDraft({ ...draft, upstreamBaseUrl: event.target.value })} /></Field>
       </div>
       <div className="rounded-lg border border-border bg-muted/40 p-4 text-xs text-slate-600">
         <strong>Next:</strong> after this step we land you on the new binding so you can hit "Try it" and verify the round-trip.

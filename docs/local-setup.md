@@ -29,12 +29,12 @@ export DATABASE_URL="postgresql://schemabridge:schemabridge@localhost:5432/schem
 npm run db:migrate
 ```
 
-## Demo Flow
+## First Local Flow
 
-1. Load sample source and target schemas.
-2. Save schemas.
-3. Connect source leaf fields to target leaf fields on the canvas.
+1. Create a source schema from a real incoming JSON payload.
+2. Create a target schema from the JSON shape your destination service expects.
+3. Create a mapping and connect source fields to target fields.
 4. Save the mapping.
-5. Paste a source payload in the playground.
-6. Run the transformation.
-7. Create a new version or restore an existing version from the editor toolbar.
+5. Create a binding for the proxy path and destination service URL.
+6. Use the binding's Try tab to inspect the transformed request before sending.
+7. Check Live traffic to verify incoming payload, transformed payload, response, and errors.

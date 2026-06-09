@@ -122,8 +122,8 @@ function NewBinding({ onCancel }: { readonly onCancel: () => void }) {
   const [draft, setDraft] = useState({
     name: "",
     method: "POST" as ProxyBindingMethod,
-    pathPattern: "/customers",
-    upstreamBaseUrl: "http://service-b:8082",
+    pathPattern: "/orders",
+    upstreamBaseUrl: "",
     mappingId: mappings[0]?.id ?? "",
     responseMappingId: "",
     validationMode: "off" as ProxyBindingValidationMode
@@ -460,7 +460,7 @@ function TryPanel({ binding }: { readonly binding: ProxyBinding }) {
 
   const curlCommand = useMemo(() => {
     const method = binding.method === "*" ? "POST" : binding.method;
-    const path = binding.pathPattern.replace(/:([A-Za-z0-9_]+)/g, "demo");
+    const path = binding.pathPattern.replace(/:([A-Za-z0-9_]+)/g, "sample");
     const hasBody = method === "POST" || method === "PUT" || method === "PATCH";
     if (state.appId) {
       return [

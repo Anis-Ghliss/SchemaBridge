@@ -23,8 +23,6 @@ flowchart LR
 - `packages/shared-types`: Zod contracts and TypeScript types.
 - `packages/schema-parser`: converts JSON examples into path trees.
 - `packages/transformation-engine`: applies mapping rules (path rename + optional `transform` enum: string/number/boolean/lowercase/uppercase/iso-date).
-- `examples/services`: tiny upstreams used by the `demo` compose profile.
-- `examples/seed`: seed file loaded on first boot when `BINDINGS_SEED_FILE` is set.
 
 ## Database Schema
 
