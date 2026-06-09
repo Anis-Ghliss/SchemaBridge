@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.5 — 2026-06-09
+
+### Added
+- Added getting started, concepts, validation, and release checklist documentation for OSS users.
+- Added contribution, security, issue, and pull request templates.
+- Added broader proxy validation coverage for strict/off modes, arrays, transformed target payloads, and response validation.
+
+### Verified
+- Ran a blank-database Docker smoke test covering schema creation, mapping creation, binding creation, strict validation, proxy forwarding, and transformed payload delivery to a receiver.
+
 ## v0.1.4 — 2026-06-09
 
 ### Changed
