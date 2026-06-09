@@ -63,6 +63,8 @@ volumes:
 
 Open <http://localhost:4000>, create a binding, then send traffic to `http://localhost:8080/<your-path>`.
 
+New users should follow [Getting Started](docs/getting-started.md) for a blank-database order mapping scenario.
+
 ### Environment
 
 | Variable | Default | Purpose |
@@ -128,6 +130,13 @@ From there, create your first real route:
 3. Create a mapping and connect fields explicitly.
 4. Create a binding with the proxy path and destination service URL.
 5. Register an app key if `PROXY_REQUIRE_AUTH=true`, then send traffic to `http://localhost:8080/<your-path>`.
+
+Detailed walkthroughs:
+
+- [Getting started](docs/getting-started.md)
+- [Concepts](docs/concepts.md)
+- [Validation](docs/validation.md)
+- [Release checklist](docs/release-checklist.md)
 
 ## Screenshots
 

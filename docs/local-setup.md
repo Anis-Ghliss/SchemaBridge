@@ -8,7 +8,8 @@ docker compose up
 
 Open:
 
-- Frontend: http://localhost:5173
+- Admin UI: http://localhost:4000
+- Runtime proxy: http://localhost:8080
 - Backend health: http://localhost:4000/health
 
 ## Local Development Without Docker
@@ -31,10 +32,4 @@ npm run db:migrate
 
 ## First Local Flow
 
-1. Create a source schema from a real incoming JSON payload.
-2. Create a target schema from the JSON shape your destination service expects.
-3. Create a mapping and connect source fields to target fields.
-4. Save the mapping.
-5. Create a binding for the proxy path and destination service URL.
-6. Use the binding's Try tab to inspect the transformed request before sending.
-7. Check Live traffic to verify incoming payload, transformed payload, response, and errors.
+Follow [Getting Started](getting-started.md) for the full blank-database flow.

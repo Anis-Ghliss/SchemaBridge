@@ -9,6 +9,12 @@ const SCHEMA_TARGET_ID = "00000000-0000-4000-8000-000000000002";
 const MAPPING_REQUEST_ID = "00000000-0000-4000-8000-0000000000a1";
 const MAPPING_RESPONSE_ID = "00000000-0000-4000-8000-0000000000a2";
 const BINDING_ID = "00000000-0000-4000-8000-0000000000b1";
+const ORDER_SOURCE_SCHEMA_ID = "00000000-0000-4000-8000-000000000011";
+const ORDER_TARGET_SCHEMA_ID = "00000000-0000-4000-8000-000000000012";
+const ORDER_MAPPING_ID = "00000000-0000-4000-8000-0000000000a3";
+const ACK_SOURCE_SCHEMA_ID = "00000000-0000-4000-8000-000000000021";
+const ACK_TARGET_SCHEMA_ID = "00000000-0000-4000-8000-000000000022";
+const ACK_MAPPING_ID = "00000000-0000-4000-8000-0000000000a4";
 
 function seedRequestMapping(prisma: MemoryPrisma): void {
   prisma.seed.schema({ id: SCHEMA_SOURCE_ID, name: "Customer v1", content: { customerName: "Ada", customerEmail: "ada@example.com" }, fields: [] });
@@ -36,6 +42,69 @@ function seedResponseMapping(prisma: MemoryPrisma): void {
     rules: [
       { id: "r1", sourcePath: "customer.id", targetPath: "customerId" },
       { id: "r2", sourcePath: "customer.name", targetPath: "customerName" }
+    ]
+  });
+}
+
+function seedOrderMapping(prisma: MemoryPrisma): void {
+  prisma.seed.schema({
+    id: ORDER_SOURCE_SCHEMA_ID,
+    name: "Order v1",
+    content: {
+      order_id: "ord-1234",
+      items: [{ sku: "BOOK-001", qty: 2, unit_price: 19.99 }],
+      total_amount: 43.48
+    },
+    fields: []
+  });
+  prisma.seed.schema({
+    id: ORDER_TARGET_SCHEMA_ID,
+    name: "Order v2",
+    content: {
+      orderId: "ord-1234",
+      lineItems: [{ sku: "BOOK-001", qty: 2, unitPrice: 19.99 }],
+      totals: { amount: 43.48 }
+    },
+    fields: []
+  });
+  prisma.seed.mapping({
+    id: ORDER_MAPPING_ID,
+    name: "order v1 to v2 request",
+    sourceSchemaId: ORDER_SOURCE_SCHEMA_ID,
+    targetSchemaId: ORDER_TARGET_SCHEMA_ID,
+    currentVersion: 1,
+    rules: [
+      { id: "r1", sourcePath: "order_id", targetPath: "orderId" },
+      { id: "r2", sourcePath: "items[].sku", targetPath: "lineItems[].sku" },
+      { id: "r3", sourcePath: "items[].qty", targetPath: "lineItems[].qty" },
+      { id: "r4", sourcePath: "items[].unit_price", targetPath: "lineItems[].unitPrice" },
+      { id: "r5", sourcePath: "total_amount", targetPath: "totals.amount" }
+    ]
+  });
+}
+
+function seedAckResponseMapping(prisma: MemoryPrisma): void {
+  prisma.seed.schema({
+    id: ACK_SOURCE_SCHEMA_ID,
+    name: "Ack upstream",
+    content: { result: { id: "c-1", accepted: true } },
+    fields: []
+  });
+  prisma.seed.schema({
+    id: ACK_TARGET_SCHEMA_ID,
+    name: "Ack public",
+    content: { customerId: "c-1", accepted: true },
+    fields: []
+  });
+  prisma.seed.mapping({
+    id: ACK_MAPPING_ID,
+    name: "ack response",
+    sourceSchemaId: ACK_SOURCE_SCHEMA_ID,
+    targetSchemaId: ACK_TARGET_SCHEMA_ID,
+    currentVersion: 1,
+    rules: [
+      { id: "r1", sourcePath: "result.id", targetPath: "customerId" },
+      { id: "r2", sourcePath: "result.accepted", targetPath: "accepted" }
     ]
   });
 }
@@ -254,6 +323,167 @@ describe("proxy app", () => {
       "validation: request-source.customerEmail is required",
       "validation: request-target.customer.email is required"
     ]);
+  });
+
+  it("ignores schema validation when validation is off", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "unvalidated-customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "off",
+      enabled: true
+    });
+
+    let receivedBody: string | undefined;
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply((opts) => {
+      receivedBody = typeof opts.body === "string" ? opts.body : String(opts.body);
+      return { statusCode: 202, data: { accepted: true }, responseOptions: { headers: { "content-type": "application/json" } } };
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada" }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(JSON.parse(receivedBody as string)).toEqual({ customer: { name: "Ada" } });
+  });
+
+  it("rejects invalid array item types during strict request-source validation", async () => {
+    const prisma = createMemoryPrisma();
+    seedOrderMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "strict-orders",
+      method: "POST",
+      pathPattern: "/orders",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: ORDER_MAPPING_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "strict",
+      enabled: true
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/orders",
+      headers: { "content-type": "application/json" },
+      payload: { order_id: "ord-1234", items: [{ sku: "BOOK-001", qty: 2, unit_price: "19.99" }], total_amount: 43.48 }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      stage: "request-validation",
+      errors: ["validation: request-source.items[0].unit_price must be number"]
+    });
+  });
+
+  it("rejects transformed payloads that do not satisfy the target schema in strict mode", async () => {
+    const prisma = createMemoryPrisma();
+    seedOrderMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "strict-orders-target",
+      method: "POST",
+      pathPattern: "/orders",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: ORDER_MAPPING_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "strict",
+      enabled: true
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/orders",
+      headers: { "content-type": "application/json" },
+      payload: { order_id: "ord-1234", items: [], total_amount: 43.48 }
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({
+      stage: "request-validation",
+      errors: ["validation: request-target.lineItems is required"]
+    });
+  });
+
+  it("records transformed payloads for strict validation failures after mapping", async () => {
+    const prisma = createMemoryPrisma();
+    seedOrderMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "logged-target-failure",
+      method: "POST",
+      pathPattern: "/orders",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: ORDER_MAPPING_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "strict",
+      enabled: true
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    await app.inject({
+      method: "POST",
+      url: "/orders",
+      headers: { "content-type": "application/json" },
+      payload: { order_id: "ord-1234", items: [], total_amount: 43.48 }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const logs = await prisma.proxyRequestLog.findMany();
+    expect(logs[0]?.statusCode).toBe(502);
+    expect(logs[0]?.transformedRequest).toEqual({ orderId: "ord-1234", totals: { amount: 43.48 } });
+    expect(logs[0]?.errors).toEqual(["validation: request-target.lineItems is required"]);
+  });
+
+  it("rejects invalid upstream response payloads during strict response-source validation", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    seedAckResponseMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "strict-response",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: ACK_MAPPING_ID,
+      forwardHeaders: ["content-type"],
+      validationMode: "strict",
+      enabled: true
+    });
+
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { result: { id: "c-1", accepted: "yes" } }, { headers: { "content-type": "application/json" } });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({
+      stage: "response-validation",
+      errors: ["validation: response-source.result.accepted must be boolean"]
+    });
   });
 
   describe("with PROXY_REQUIRE_AUTH", () => {
