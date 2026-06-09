@@ -5,6 +5,7 @@ import { SchemaBridgeRepository } from "./services/repository.js";
 import { ProxyService } from "./services/proxyService.js";
 import { parseBearerToken } from "./services/authService.js";
 import { registerInMemoryRateLimit, type RateLimitOptions } from "./services/rateLimiter.js";
+import type { EgressPolicy } from "./services/egressGuard.js";
 import type { Dispatcher } from "undici";
 
 export interface ProxyAppOptions {
@@ -15,6 +16,9 @@ export interface ProxyAppOptions {
   readonly bodyLimitBytes?: number;
   readonly rateLimit?: RateLimitOptions;
   readonly upstreamTimeoutMs?: number;
+  readonly egressPolicy?: EgressPolicy;
+  /** When false, request/response bodies are not persisted to the request log. Default true. */
+  readonly captureBodies?: boolean;
 }
 
 export interface ProxyAppBundle {
@@ -25,8 +29,11 @@ export interface ProxyAppBundle {
 export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyAppBundle> {
   const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
   const repository = new SchemaBridgeRepository(options.prisma);
-  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher, upstreamTimeoutMs: options.upstreamTimeoutMs });
+  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher, upstreamTimeoutMs: options.upstreamTimeoutMs, egressPolicy: options.egressPolicy });
   const requireAuth = options.requireAuth ?? false;
+  const captureBodies = options.captureBodies ?? true;
+  const record = (input: Parameters<SchemaBridgeRepository["recordProxyRequest"]>[0]): void =>
+    recordSafely(repository, captureBodies ? input : stripBodies(input));
 
   await proxyService.reload();
 
@@ -47,29 +54,31 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
       if (requireAuth) {
         const token = parseBearerToken(request.headers["authorization"]);
         if (!token) {
-          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["missing Bearer token"] });
+          record({ bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["missing Bearer token"] });
           return reply.code(401).send({ error: "missing Authorization Bearer token" });
         }
         const app = await repository.findProxyAppByPlaintextKey(token);
         if (!app) {
-          recordSafely(repository, { bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["unknown api key"] });
+          record({ bindingId: null, appId: null, method: request.method, path, statusCode: 401, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["unknown api key"] });
           return reply.code(401).send({ error: "invalid api key" });
         }
         if (!app.enabled) {
-          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app disabled"] });
+          record({ bindingId: null, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app disabled"] });
           return reply.code(403).send({ error: "app is disabled" });
         }
         authorizedAppId = app.id;
+        // The inbound Authorization was the bridge credential; never forward it upstream.
+        delete request.headers.authorization;
         // touch lastUsedAt fire-and-forget
         void repository.touchProxyAppLastUsed(app.id).catch(() => undefined);
 
         const matched = proxyService.matchBinding(request.method, path);
         if (!matched) {
-          recordSafely(repository, { bindingId: null, appId: app.id, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
+          record({ bindingId: null, appId: app.id, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
           return reply.code(404).send({ error: `No proxy binding for ${request.method} ${path}` });
         }
         if (app.scope === "selected" && !app.bindingIds.includes(matched.active.binding.id)) {
-          recordSafely(repository, { bindingId: matched.active.binding.id, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app key not authorized for this binding"] });
+          record({ bindingId: matched.active.binding.id, appId: app.id, method: request.method, path, statusCode: 403, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: ["app key not authorized for this binding"] });
           return reply.code(403).send({ error: "api key not authorized for this binding" });
         }
 
@@ -78,7 +87,7 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
 
       const matched = proxyService.matchBinding(request.method, path);
       if (!matched) {
-        recordSafely(repository, { bindingId: null, appId: authorizedAppId, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
+        record({ bindingId: null, appId: authorizedAppId, method: request.method, path, statusCode: 404, durationMs: Date.now() - startedAt, incomingRequest: request.body, errors: [`no binding for ${request.method} ${path}`] });
         return reply.code(404).send({ error: `No proxy binding for ${request.method} ${path}` });
       }
       return forward(matched, request, path, query, reply, startedAt, authorizedAppId);
@@ -100,7 +109,7 @@ export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyApp
           body: req.body
         });
         const durationMs = Date.now() - startMs;
-        recordSafely(repository, {
+        record({
           bindingId: matched.active.binding.id,
           appId,
           method: req.method,
@@ -131,4 +140,8 @@ function recordSafely(repository: SchemaBridgeRepository, input: Parameters<Sche
     const message = error instanceof Error ? error.message : "unknown error";
     console.warn(`[proxy] failed to record request: ${message}`);
   });
+}
+
+function stripBodies(input: Parameters<SchemaBridgeRepository["recordProxyRequest"]>[0]): Parameters<SchemaBridgeRepository["recordProxyRequest"]>[0] {
+  return { ...input, incomingRequest: undefined, transformedRequest: undefined, responseBody: undefined };
 }

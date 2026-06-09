@@ -36,7 +36,7 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:v0.1.5
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.6
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
@@ -83,12 +83,17 @@ New users should follow [Getting Started](docs/getting-started.md) for a blank-d
 | `ADMIN_RATE_LIMIT_WINDOW_MS` | `60000` | Admin rate-limit window size. |
 | `PROXY_RATE_LIMIT_MAX` | `1200` | Max proxy requests per client per window; set `0` to disable. |
 | `PROXY_RATE_LIMIT_WINDOW_MS` | `60000` | Proxy rate-limit window size. |
+| `TRUST_PROXY` | `false` | When `true`, rate limiting reads the client IP from `X-Forwarded-For`. Only enable behind a reverse proxy that overwrites this header — otherwise clients can spoof it to evade rate limits. |
+| `PROXY_ALLOW_PRIVATE_UPSTREAMS` | `true` | When `false`, bindings/requests to loopback and private (RFC 1918 / ULA) upstreams are rejected. Link-local / cloud-metadata addresses and non-HTTP schemes are **always** blocked regardless of this setting. |
+| `PROXY_UPSTREAM_ALLOWLIST` | unset | Comma-separated `host` or `host:port` allowlist. When set, bindings/requests may only target these upstreams. |
+| `PROXY_LOG_BODIES` | `true` | When `false`, request/response bodies are not persisted to `ProxyRequestLog` (metadata only). Set `false` when traffic carries PII/secrets. |
+| `BRIDGE_ALLOW_INSECURE` | `false` | When `true`, allows the bridge to start in production even if `ADMIN_API_KEY`/`PROXY_REQUIRE_AUTH` are unset. Otherwise such a config is fatal in production. |
 
 ### Production checklist
 
 Before pointing real traffic at the bridge:
 
-- [ ] **Pin the image** to a release tag (e.g. `:v0.1.5`), not `:latest`.
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.6`), not `:latest`.
 - [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
 - [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
 - [ ] Set a real Postgres password.
@@ -97,7 +102,7 @@ Before pointing real traffic at the bridge:
 - [ ] Tune `PROXY_BODY_LIMIT_BYTES`, `PROXY_UPSTREAM_TIMEOUT_MS`, and proxy/admin rate limits for your traffic profile.
 - [ ] Set `PROXY_REQUEST_LOG_RETENTION_DAYS` to the number of days of proxy traffic history you need, or run your own retention job.
 
-The bridge logs a warning at startup if `PROXY_REQUIRE_AUTH` or `ADMIN_API_KEY` are unset while `NODE_ENV=production`.
+When `NODE_ENV=production`, the bridge **refuses to start** if `PROXY_REQUIRE_AUTH` is not `true` or `ADMIN_API_KEY` is unset, so it cannot accidentally come up unauthenticated. Set `BRIDGE_ALLOW_INSECURE=true` to override (the misconfiguration is then logged as a warning instead). Outside production these remain warnings only.
 
 ### Authorizing services
 

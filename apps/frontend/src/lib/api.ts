@@ -169,15 +169,18 @@ function concretizePath(pattern: string): string {
 
 const ADMIN_TOKEN_STORAGE = "schemabridge:admin-token";
 
+// Stored in sessionStorage (not localStorage): the admin token lives only for
+// the tab session and is not persisted to disk, limiting exposure if the GUI
+// is ever hit by XSS or used on a shared machine.
 export function getAdminToken(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  return window.localStorage.getItem(ADMIN_TOKEN_STORAGE) ?? undefined;
+  return window.sessionStorage.getItem(ADMIN_TOKEN_STORAGE) ?? undefined;
 }
 
 export function setAdminToken(token: string | undefined): void {
   if (typeof window === "undefined") return;
-  if (token && token.length > 0) window.localStorage.setItem(ADMIN_TOKEN_STORAGE, token);
-  else window.localStorage.removeItem(ADMIN_TOKEN_STORAGE);
+  if (token && token.length > 0) window.sessionStorage.setItem(ADMIN_TOKEN_STORAGE, token);
+  else window.sessionStorage.removeItem(ADMIN_TOKEN_STORAGE);
 }
 
 let onUnauthorized: (() => void) | undefined;

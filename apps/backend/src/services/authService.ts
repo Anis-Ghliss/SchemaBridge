@@ -32,6 +32,18 @@ export function verifyApiKey(plaintext: string, expectedHash: string): boolean {
   return timingSafeEqual(candidate, expected);
 }
 
+/**
+ * Constant-time equality for two secrets of arbitrary length. Hashing both
+ * sides to a fixed width first keeps the comparison free of length-based timing
+ * leaks (timingSafeEqual itself requires equal-length buffers).
+ */
+export function secretsEqual(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const left = createHash("sha256").update(a).digest();
+  const right = createHash("sha256").update(b).digest();
+  return timingSafeEqual(left, right);
+}
+
 export function parseBearerToken(header: string | string[] | undefined): string | undefined {
   if (!header) return undefined;
   const value = Array.isArray(header) ? header[0] : header;

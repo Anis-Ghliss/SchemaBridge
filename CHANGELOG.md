@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.6 — 2026-06-09
+
+### Security
+- Added SSRF egress controls: upstream targets are validated when a binding is saved and before every forwarded request. Non-HTTP schemes and link-local / cloud-metadata addresses (including IPv4-mapped IPv6 forms) are always blocked; loopback/private ranges can be blocked with `PROXY_ALLOW_PRIVATE_UPSTREAMS=false` and upstreams restricted with `PROXY_UPSTREAM_ALLOWLIST` (re-checked against DNS to mitigate rebinding).
+- Stopped forwarding the inbound `Authorization` header upstream so proxy app keys cannot leak to upstream services; removed it from the default forward-header set.
+- Switched the admin token check to constant-time comparison.
+- Hardened rate limiting against `X-Forwarded-For` spoofing; the header is only trusted when `TRUST_PROXY=true`.
+- Made the admin auth gate fail-closed so new API routes require a token by default.
+- Stopped returning raw upstream connection errors to callers (internal hostnames/ports stay in the server-side trace).
+- Added recursion-depth bounds to schema parsing and example validation to prevent stack-exhaustion DoS.
+- Added `PROXY_LOG_BODIES=false` to keep request/response payloads out of `ProxyRequestLog`.
+- Moved the admin token from `localStorage` to `sessionStorage` in the GUI.
+- In production, the bridge now refuses to start unauthenticated (`ADMIN_API_KEY` unset or `PROXY_REQUIRE_AUTH` not true) unless `BRIDGE_ALLOW_INSECURE=true`.
+
 ## v0.1.5 — 2026-06-09
 
 ### Added

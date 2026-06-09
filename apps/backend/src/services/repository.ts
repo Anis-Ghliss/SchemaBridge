@@ -43,7 +43,11 @@ export interface RecordProxyRequestInput {
   readonly errors: readonly string[];
 }
 
-const DEFAULT_FORWARD_HEADERS: readonly string[] = ["content-type", "accept", "authorization"];
+// `authorization` is intentionally excluded: forwarding the caller's credential
+// (which, under PROXY_REQUIRE_AUTH, is the bridge's own app key) would leak it to
+// every upstream. Operators who genuinely need to pass an upstream credential can
+// add a header to a binding's forwardHeaders explicitly.
+const DEFAULT_FORWARD_HEADERS: readonly string[] = ["content-type", "accept"];
 
 export interface ActiveBinding {
   readonly binding: ProxyBinding;

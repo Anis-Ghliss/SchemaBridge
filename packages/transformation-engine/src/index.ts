@@ -70,9 +70,13 @@ export function validateMappingRules(rules: readonly MappingRule[]): readonly st
   return errors;
 }
 
+// Defense-in-depth bound so a deeply nested payload cannot exhaust the stack
+// while being validated against an example schema.
+const MAX_VALIDATION_DEPTH = 100;
+
 export function validateAgainstExample(value: unknown, example: JsonValue, label: string): readonly string[] {
   const errors: string[] = [];
-  visitExample(value, example, label, errors);
+  visitExample(value, example, label, errors, 0);
   return errors;
 }
 
@@ -179,7 +183,12 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function visitExample(value: unknown, example: JsonValue, path: string, errors: string[]): void {
+function visitExample(value: unknown, example: JsonValue, path: string, errors: string[], depth: number): void {
+  if (depth >= MAX_VALIDATION_DEPTH) {
+    errors.push(`${path} exceeds the maximum supported nesting depth`);
+    return;
+  }
+
   if (Array.isArray(example)) {
     if (!Array.isArray(value)) {
       errors.push(`${path} must be an array`);
@@ -187,7 +196,7 @@ function visitExample(value: unknown, example: JsonValue, path: string, errors: 
     }
     if (example.length === 0 || value.length === 0) return;
     const itemExample = example[0] as JsonValue;
-    value.forEach((item, index) => visitExample(item, itemExample, `${path}[${index}]`, errors));
+    value.forEach((item, index) => visitExample(item, itemExample, `${path}[${index}]`, errors, depth + 1));
     return;
   }
 
@@ -201,7 +210,7 @@ function visitExample(value: unknown, example: JsonValue, path: string, errors: 
         errors.push(`${joinPath(path, key)} is required`);
         continue;
       }
-      visitExample(value[key], childExample as JsonValue, joinPath(path, key), errors);
+      visitExample(value[key], childExample as JsonValue, joinPath(path, key), errors, depth + 1);
     }
     return;
   }

@@ -3,6 +3,7 @@ import { transformPayload, validateAgainstExample } from "@schemabridge/transfor
 import { match, type MatchFunction } from "path-to-regexp";
 import { request as undiciRequest, type Dispatcher } from "undici";
 import type { ActiveBinding, SchemaBridgeRepository } from "./repository.js";
+import { checkEgress, defaultEgressPolicy, type EgressPolicy } from "./egressGuard.js";
 
 export interface ProxyRequest {
   readonly method: string;
@@ -45,11 +46,14 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 export class ProxyService {
   private compiled: readonly CompiledBinding[] = [];
+  private readonly egressPolicy: EgressPolicy;
 
   public constructor(
     private readonly repository: SchemaBridgeRepository,
-    private readonly options: { readonly dispatcher?: Dispatcher; readonly upstreamTimeoutMs?: number } = {}
-  ) {}
+    private readonly options: { readonly dispatcher?: Dispatcher; readonly upstreamTimeoutMs?: number; readonly egressPolicy?: EgressPolicy } = {}
+  ) {
+    this.egressPolicy = options.egressPolicy ?? defaultEgressPolicy();
+  }
 
   public async reload(): Promise<void> {
     const active = await this.repository.listActiveBindings();
@@ -99,6 +103,16 @@ export class ProxyService {
     const forwardedHeaders = pickHeaders(req.headers, binding.forwardHeaders);
     const upstreamUrl = joinUrl(binding.upstreamBaseUrl, req.path, req.query);
 
+    const egress = await checkEgress(upstreamUrl, this.egressPolicy);
+    if (!egress.ok) {
+      return {
+        statusCode: 502,
+        headers: { "content-type": "application/json" },
+        body: { stage: "upstream", error: "upstream destination is not permitted" },
+        trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: [...validationErrors, `egress-blocked: ${egress.reason}`] }
+      };
+    }
+
     let upstream: Dispatcher.ResponseData;
     try {
       upstream = await undiciRequest(upstreamUrl, {
@@ -110,11 +124,13 @@ export class ProxyService {
         dispatcher: this.options.dispatcher
       });
     } catch (error) {
+      // Internal failure detail (hostnames, ports, ECONNREFUSED, …) stays in the
+      // server-side trace; the caller only learns the request did not complete.
       const message = error instanceof Error ? error.message : "unknown upstream error";
       return {
         statusCode: 502,
         headers: { "content-type": "application/json" },
-        body: { stage: "upstream", error: message },
+        body: { stage: "upstream", error: "upstream request failed" },
         trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: [...validationErrors, `upstream: ${message}`] }
       };
     }

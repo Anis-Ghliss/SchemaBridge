@@ -3,6 +3,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 export interface RateLimitOptions {
   readonly max: number;
   readonly windowMs: number;
+  /**
+   * Only honor X-Forwarded-For when the bridge sits behind a trusted reverse
+   * proxy that overwrites it. Default false — otherwise any client could spoof
+   * the header to mint unlimited rate-limit buckets.
+   */
+  readonly trustProxy?: boolean;
 }
 
 interface Bucket {
@@ -29,7 +35,7 @@ export function registerInMemoryRateLimit(app: FastifyInstance, options: RateLim
   app.addHook("onRequest", async (request, reply) => {
     if (request.method === "OPTIONS") return;
     const now = Date.now();
-    const key = clientKey(request);
+    const key = clientKey(request, options.trustProxy ?? false);
     const existing = buckets.get(key);
     const bucket = existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + options.windowMs };
     bucket.count += 1;
@@ -48,10 +54,14 @@ export function registerInMemoryRateLimit(app: FastifyInstance, options: RateLim
   });
 }
 
-function clientKey(request: FastifyRequest): string {
-  const forwarded = request.headers["x-forwarded-for"];
-  const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return firstForwarded?.split(",")[0]?.trim() || request.ip;
+function clientKey(request: FastifyRequest, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = request.headers["x-forwarded-for"];
+    const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const candidate = firstForwarded?.split(",")[0]?.trim();
+    if (candidate) return candidate;
+  }
+  return request.ip;
 }
 
 function rateLimited(reply: FastifyReply) {

@@ -5,9 +5,10 @@ import { transformPayload, validateMappingRules } from "@schemabridge/transforma
 import { existsSync } from "node:fs";
 import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
-import { parseBearerToken } from "./services/authService.js";
+import { parseBearerToken, secretsEqual } from "./services/authService.js";
 import { registerInMemoryRateLimit, type RateLimitOptions } from "./services/rateLimiter.js";
 import { ProxyService } from "./services/proxyService.js";
+import { checkEgress, defaultEgressPolicy, type EgressPolicy } from "./services/egressGuard.js";
 import {
   CreateMappingRequestSchema,
   CreateProxyAppRequestSchema,
@@ -29,12 +30,14 @@ export interface AppOptions {
   readonly adminApiKey?: string;
   readonly bodyLimitBytes?: number;
   readonly rateLimit?: RateLimitOptions;
+  readonly egressPolicy?: EgressPolicy;
   readonly onBindingsChanged?: () => void | Promise<void>;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
   const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
   const repository = new SchemaBridgeRepository(options.prisma);
+  const egressPolicy = options.egressPolicy ?? defaultEgressPolicy();
 
   app.register(cors, { origin: options.corsOrigin ?? true });
   if (options.rateLimit) registerInMemoryRateLimit(app, options.rateLimit);
@@ -44,13 +47,13 @@ export function createApp(options: AppOptions): FastifyInstance {
     app.addHook("onRequest", async (request, reply) => {
       if (isPublicRoute(request.method, request.url)) return;
       const token = parseBearerToken(request.headers["authorization"]);
-      if (!token || token !== expected) {
+      if (!secretsEqual(token, expected)) {
         reply.code(401).send({ error: "missing or invalid admin token" });
       }
     });
   }
 
-  registerAdminRoutes(app, repository, options.onBindingsChanged);
+  registerAdminRoutes(app, repository, egressPolicy, options.onBindingsChanged);
 
   if (options.frontendDist && existsSync(options.frontendDist)) {
     app.register(fastifyStatic, { root: options.frontendDist, prefix: "/", wildcard: false });
@@ -65,7 +68,7 @@ export function createApp(options: AppOptions): FastifyInstance {
   return app;
 }
 
-export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBridgeRepository, onBindingsChanged?: () => void | Promise<void>): void {
+export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBridgeRepository, egressPolicy: EgressPolicy, onBindingsChanged?: () => void | Promise<void>): void {
   app.get("/health", async () => ({ status: "ok", service: "schema-bridge-api" }));
 
   app.post("/schemas", async (request, reply) => {
@@ -192,6 +195,8 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
   app.post("/bindings", async (request, reply) => {
     const body = parseBody(CreateProxyBindingRequestSchema, request.body);
     if (!body.success) return reply.code(400).send({ errors: body.error });
+    const egress = await checkEgress(body.data.upstreamBaseUrl, egressPolicy);
+    if (!egress.ok) return reply.code(400).send({ errors: [`upstreamBaseUrl: ${egress.reason}`] });
     const binding = await repository.createBinding(body.data);
     await onBindingsChanged?.();
     return binding;
@@ -202,6 +207,10 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     const body = parseBody(UpdateProxyBindingRequestSchema, request.body);
     if (!params.success) return reply.code(400).send({ errors: params.error });
     if (!body.success) return reply.code(400).send({ errors: body.error });
+    if (body.data.upstreamBaseUrl !== undefined) {
+      const egress = await checkEgress(body.data.upstreamBaseUrl, egressPolicy);
+      if (!egress.ok) return reply.code(400).send({ errors: [`upstreamBaseUrl: ${egress.reason}`] });
+    }
     const binding = await repository.updateBinding(params.data.id, body.data);
     if (!binding) return reply.code(404).send({ error: "Binding not found" });
     await onBindingsChanged?.();
@@ -239,7 +248,7 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
 
     const method = active.binding.method === "*" ? "POST" : active.binding.method;
     const path = concretizePath(active.binding.pathPattern);
-    const proxyService = new ProxyService(repository);
+    const proxyService = new ProxyService(repository, { egressPolicy });
     const startedAt = Date.now();
     const result = await proxyService.forward(active, {
       method,
@@ -335,10 +344,20 @@ function concretizePath(pattern: string): string {
   return pattern.replace(/:([A-Za-z0-9_]+)/g, "sample");
 }
 
+// Every privileged API surface. Requests to these always require an admin token;
+// any future API route should be added here so it cannot be silently exposed.
+const PROTECTED_API_PREFIXES = ["/schemas", "/mappings", "/bindings", "/apps", "/proxy", "/transform"];
+
 function isPublicRoute(method: string, url: string): boolean {
   if (method === "OPTIONS") return true;
-  if (url === "/health") return true;
-  // GUI bundle assets: anything without an API path prefix and that looks like a static file or SPA route
-  const apiPrefixes = ["/schemas", "/mappings", "/bindings", "/apps", "/proxy", "/transform"];
-  return !apiPrefixes.some((prefix) => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`));
+  const path = url.split("?")[0];
+  if (path === "/health") return true;
+  if (matchesProtectedPrefix(url)) return false;
+  // Remaining GETs are the SPA shell / static bundle assets served from disk;
+  // they carry no privileged data. Any non-GET to a non-API path stays gated.
+  return method === "GET";
+}
+
+function matchesProtectedPrefix(url: string): boolean {
+  return PROTECTED_API_PREFIXES.some((prefix) => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`));
 }

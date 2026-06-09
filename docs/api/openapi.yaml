@@ -492,6 +492,11 @@ components:
           nullable: true
         forwardHeaders:
           type: array
+          description: >-
+            Inbound headers copied to the upstream request. Defaults to
+            content-type and accept. The Authorization header used to
+            authenticate to the bridge is never forwarded upstream, even if
+            listed here, so proxy app keys cannot leak to upstreams.
           items:
             type: string
         validationMode:

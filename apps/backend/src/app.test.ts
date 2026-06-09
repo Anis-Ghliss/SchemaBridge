@@ -376,6 +376,38 @@ describe("admin api", () => {
     expect(response.json()).toEqual({ error: "api key not authorized for this binding" });
   });
 
+  it("rejects bindings whose upstream targets a cloud-metadata address", async () => {
+    const app = createApp({ prisma: prisma as never });
+    const response = await app.inject({
+      method: "POST",
+      url: "/bindings",
+      payload: {
+        name: "ssrf",
+        method: "POST",
+        pathPattern: "/x",
+        upstreamBaseUrl: "http://169.254.169.254/latest/meta-data/",
+        mappingId: "00000000-0000-4000-8000-000000000010"
+      }
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("rejects bindings whose upstream uses a non-http scheme", async () => {
+    const app = createApp({ prisma: prisma as never });
+    const response = await app.inject({
+      method: "POST",
+      url: "/bindings",
+      payload: {
+        name: "bad-scheme",
+        method: "POST",
+        pathPattern: "/x",
+        upstreamBaseUrl: "ftp://internal/file",
+        mappingId: "00000000-0000-4000-8000-000000000010"
+      }
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it("rejects invalid binding payloads", async () => {
     const app = createApp({ prisma: prisma as never });
     const response = await app.inject({
@@ -444,5 +476,31 @@ describe("admin api", () => {
     const rotatedBody = rotated.json() as { key: string };
     expect(rotatedBody.key).not.toBe(original);
     expect(rotatedBody.key.startsWith("sb_")).toBe(true);
+  });
+
+  describe("with ADMIN_API_KEY set", () => {
+    it("rejects API requests without a token", async () => {
+      const app = createApp({ prisma: prisma as never, adminApiKey: "s3cret" });
+      const response = await app.inject({ method: "GET", url: "/bindings" });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("rejects API requests with a wrong token", async () => {
+      const app = createApp({ prisma: prisma as never, adminApiKey: "s3cret" });
+      const response = await app.inject({ method: "GET", url: "/bindings", headers: { authorization: "Bearer nope" } });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("accepts API requests with the correct token", async () => {
+      const app = createApp({ prisma: prisma as never, adminApiKey: "s3cret" });
+      const response = await app.inject({ method: "GET", url: "/bindings", headers: { authorization: "Bearer s3cret" } });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it("leaves the health check public", async () => {
+      const app = createApp({ prisma: prisma as never, adminApiKey: "s3cret" });
+      const response = await app.inject({ method: "GET", url: "/health" });
+      expect(response.statusCode).toBe(200);
+    });
   });
 });

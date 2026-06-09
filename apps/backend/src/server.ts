@@ -2,6 +2,8 @@ import { prisma } from "./db.js";
 import { createApp } from "./app.js";
 import { createProxyApp } from "./proxyApp.js";
 import { SchemaBridgeRepository } from "./services/repository.js";
+import { defaultEgressPolicy, type EgressPolicy } from "./services/egressGuard.js";
+import { evaluateStartupSecurity } from "./services/startupGuard.js";
 
 const adminPort = Number(process.env.PORT ?? 4000);
 const proxyPort = Number(process.env.PROXY_PORT ?? 8080);
@@ -14,22 +16,35 @@ const requestLogRetentionDays = parsePositiveNumber(process.env.PROXY_REQUEST_LO
 const adminBodyLimitBytes = parsePositiveInteger(process.env.ADMIN_BODY_LIMIT_BYTES, 1_048_576, "ADMIN_BODY_LIMIT_BYTES");
 const proxyBodyLimitBytes = parsePositiveInteger(process.env.PROXY_BODY_LIMIT_BYTES, 1_048_576, "PROXY_BODY_LIMIT_BYTES");
 const upstreamTimeoutMs = parsePositiveInteger(process.env.PROXY_UPSTREAM_TIMEOUT_MS, 30_000, "PROXY_UPSTREAM_TIMEOUT_MS");
+const trustProxy = (process.env.TRUST_PROXY ?? "false").toLowerCase() === "true";
+const captureBodies = (process.env.PROXY_LOG_BODIES ?? "true").toLowerCase() !== "false";
+const egressPolicy = buildEgressPolicy();
 const adminRateLimit = {
   max: parseNonNegativeInteger(process.env.ADMIN_RATE_LIMIT_MAX, 600, "ADMIN_RATE_LIMIT_MAX"),
-  windowMs: parsePositiveInteger(process.env.ADMIN_RATE_LIMIT_WINDOW_MS, 60_000, "ADMIN_RATE_LIMIT_WINDOW_MS")
+  windowMs: parsePositiveInteger(process.env.ADMIN_RATE_LIMIT_WINDOW_MS, 60_000, "ADMIN_RATE_LIMIT_WINDOW_MS"),
+  trustProxy
 };
 const proxyRateLimit = {
   max: parseNonNegativeInteger(process.env.PROXY_RATE_LIMIT_MAX, 1_200, "PROXY_RATE_LIMIT_MAX"),
-  windowMs: parsePositiveInteger(process.env.PROXY_RATE_LIMIT_WINDOW_MS, 60_000, "PROXY_RATE_LIMIT_WINDOW_MS")
+  windowMs: parsePositiveInteger(process.env.PROXY_RATE_LIMIT_WINDOW_MS, 60_000, "PROXY_RATE_LIMIT_WINDOW_MS"),
+  trustProxy
 };
 
-if (process.env.NODE_ENV === "production") {
-  if (!requireAuth) {
-    console.warn("[bridge] WARNING: PROXY_REQUIRE_AUTH is not set to true. The proxy port is open to anyone who can reach it. Set PROXY_REQUIRE_AUTH=true and register apps in the Apps tab before exposing this bridge.");
+const startupSecurity = evaluateStartupSecurity({
+  nodeEnv: process.env.NODE_ENV,
+  requireAuth,
+  adminApiKey,
+  allowInsecure: (process.env.BRIDGE_ALLOW_INSECURE ?? "false").toLowerCase() === "true"
+});
+for (const warning of startupSecurity.warnings) {
+  console.warn(`[bridge] WARNING: ${warning}`);
+}
+if (startupSecurity.fatal.length > 0) {
+  for (const issue of startupSecurity.fatal) {
+    console.error(`[bridge] FATAL: ${issue}`);
   }
-  if (!adminApiKey) {
-    console.warn("[bridge] WARNING: ADMIN_API_KEY is unset. The admin API and GUI are open to anyone who can reach them. Set ADMIN_API_KEY before deploying.");
-  }
+  console.error("[bridge] Refusing to start an unauthenticated bridge in production. Set ADMIN_API_KEY and PROXY_REQUIRE_AUTH=true, or set BRIDGE_ALLOW_INSECURE=true to override.");
+  process.exit(1);
 }
 
 const proxyBundle = await createProxyApp({
@@ -38,7 +53,9 @@ const proxyBundle = await createProxyApp({
   requireAuth,
   bodyLimitBytes: proxyBodyLimitBytes,
   rateLimit: proxyRateLimit.max > 0 ? proxyRateLimit : undefined,
-  upstreamTimeoutMs
+  upstreamTimeoutMs,
+  egressPolicy,
+  captureBodies
 });
 const adminApp = createApp({
   prisma,
@@ -47,6 +64,7 @@ const adminApp = createApp({
   adminApiKey,
   bodyLimitBytes: adminBodyLimitBytes,
   rateLimit: adminRateLimit.max > 0 ? adminRateLimit : undefined,
+  egressPolicy,
   onBindingsChanged: () => proxyBundle.proxyService.reload()
 });
 
@@ -75,6 +93,19 @@ async function shutdown(signal: string): Promise<void> {
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+
+function buildEgressPolicy(): EgressPolicy {
+  const base = defaultEgressPolicy();
+  // Link-local / cloud-metadata and non-HTTP schemes are always blocked. Set
+  // PROXY_ALLOW_PRIVATE_UPSTREAMS=false to additionally forbid loopback/private
+  // ranges, and/or PROXY_UPSTREAM_ALLOWLIST to restrict upstreams to named hosts.
+  const allowPrivate = (process.env.PROXY_ALLOW_PRIVATE_UPSTREAMS ?? "true").toLowerCase() !== "false";
+  const allowlistRaw = process.env.PROXY_UPSTREAM_ALLOWLIST?.trim();
+  const allowedHosts = allowlistRaw
+    ? new Set(allowlistRaw.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean))
+    : null;
+  return { ...base, allowPrivate, allowedHosts };
+}
 
 function parsePositiveNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;

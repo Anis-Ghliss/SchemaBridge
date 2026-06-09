@@ -185,6 +185,112 @@ describe("proxy app", () => {
     expect(JSON.parse(receivedBody as string)).toEqual({ customer: { name: "Ada", email: "ada@example.com" } });
   });
 
+  it("does not forward the bridge Authorization header upstream", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      // Even when a binding explicitly lists authorization, the credential used
+      // to authenticate to the bridge must never reach the upstream.
+      forwardHeaders: ["content-type", "authorization"],
+      enabled: true
+    });
+    const generated = generateApiKey();
+    prisma.seed.app({
+      id: "00000000-0000-4000-8000-0000000000c9",
+      name: "leaky",
+      description: null,
+      keyHash: generated.hash,
+      keyPrefix: generated.prefix,
+      scope: "all",
+      bindingIds: [],
+      enabled: true
+    });
+
+    let receivedAuth: string | string[] | undefined = "unset";
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply((opts) => {
+      receivedAuth = (opts.headers as Record<string, string | string[] | undefined>)?.authorization;
+      return { statusCode: 201, data: { ok: true }, responseOptions: { headers: { "content-type": "application/json" } } };
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, requireAuth: true });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { authorization: `Bearer ${generated.plaintext}`, "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(receivedAuth).toBeUndefined();
+  });
+
+  it("blocks forwarding to a cloud-metadata upstream", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "metadata",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://169.254.169.254",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      enabled: true
+    });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const response = await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect((response.json() as { error: string }).error).toBe("upstream destination is not permitted");
+  });
+
+  it("omits request bodies from the log when capture is disabled", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      enabled: true
+    });
+
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { ok: true }, { headers: { "content-type": "application/json" } });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, captureBodies: false });
+    await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com" }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Bodies are stored as JSON null (no payload content persisted).
+    const logs = await prisma.proxyRequestLog.findMany();
+    expect(JSON.stringify(logs[0]?.incomingRequest ?? null)).not.toContain("Ada");
+    expect(JSON.stringify(logs[0]?.transformedRequest ?? null)).not.toContain("Ada");
+    expect(JSON.stringify(logs[0]?.responseBody ?? null)).not.toContain("ok");
+  });
+
   it("applies response mapping when configured", async () => {
     const prisma = createMemoryPrisma();
     seedRequestMapping(prisma);

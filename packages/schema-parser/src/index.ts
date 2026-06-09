@@ -14,28 +14,34 @@ export function parseJsonText(text: string): { readonly value?: JsonValue; reado
   }
 }
 
+// Bound recursion so a deeply nested payload cannot exhaust the call stack.
+// Anything past the limit is treated as an opaque leaf.
+const MAX_DEPTH = 100;
+
 export function parseSchema(value: JsonValue): ParseSchemaResult {
-  return { fields: buildFields(value, ""), errors: [] };
+  return { fields: buildFields(value, "", 0), errors: [] };
 }
 
-function buildFields(value: JsonValue, basePath: string): readonly SchemaField[] {
+function buildFields(value: JsonValue, basePath: string, depth: number): readonly SchemaField[] {
+  if (depth >= MAX_DEPTH) return [];
+
   if (Array.isArray(value)) {
     const sample = value[0];
-    const item = sample === undefined ? undefined : buildField("[]", `${basePath}[]`, sample);
+    const item = sample === undefined ? undefined : buildField("[]", `${basePath}[]`, sample, depth + 1);
     return item ? [item] : [];
   }
 
   if (isRecord(value)) {
-    return Object.entries(value).map(([key, child]) => buildField(key, joinPath(basePath, key), child));
+    return Object.entries(value).map(([key, child]) => buildField(key, joinPath(basePath, key), child, depth + 1));
   }
 
   return [];
 }
 
-function buildField(label: string, path: string, value: JsonValue): SchemaField {
-  if (Array.isArray(value)) {
+function buildField(label: string, path: string, value: JsonValue, depth: number): SchemaField {
+  if (depth < MAX_DEPTH && Array.isArray(value)) {
     const sample = value[0];
-    const item = sample === undefined ? undefined : buildField("item", `${path}[]`, sample);
+    const item = sample === undefined ? undefined : buildField("item", `${path}[]`, sample, depth + 1);
     return {
       path,
       label,
@@ -45,12 +51,12 @@ function buildField(label: string, path: string, value: JsonValue): SchemaField 
     };
   }
 
-  if (isRecord(value)) {
+  if (depth < MAX_DEPTH && isRecord(value)) {
     return {
       path,
       label,
       kind: "object",
-      children: buildFields(value, path)
+      children: buildFields(value, path, depth)
     };
   }
 
