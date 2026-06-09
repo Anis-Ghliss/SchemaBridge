@@ -1,4 +1,4 @@
-import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useAppStore, type ResourceView } from "../store";
 import { BindingsPage } from "../pages/BindingsPage";
@@ -48,10 +48,8 @@ export function ResourceShell() {
   return (
     <div className="grid min-h-screen grid-cols-[240px_1fr] bg-background text-foreground">
       <aside className="flex flex-col border-r border-border bg-white">
-        <div className="flex items-center gap-2 border-b border-border px-5 py-5">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="h-5 w-5" />
-          </div>
+        <div className="flex h-16 items-center gap-3 border-b border-border px-4">
+          <SchemaBridgeIcon className="h-10 w-10" />
           <div>
             <div className="text-sm font-semibold leading-tight">SchemaBridge</div>
             <div className="text-[11px] text-slate-500">Mapping middleware</div>
@@ -95,7 +93,7 @@ export function ResourceShell() {
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="flex items-center justify-between border-b border-border bg-white px-6 py-3.5">
+        <header className="flex h-16 items-center justify-between border-b border-border bg-white px-6">
           <h1 className="text-base font-semibold capitalize">{view}</h1>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] text-slate-700">
             <Activity className="h-3 w-3" />
@@ -121,6 +119,21 @@ export function ResourceShell() {
       <AppDialog />
       {loginRequired && <AdminLoginDialog onAuthenticated={() => { setLoginRequired(false); void load(); }} />}
     </div>
+  );
+}
+
+function SchemaBridgeIcon({ className }: { readonly className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 40 40" role="img" aria-label="SchemaBridge">
+      <rect width="40" height="40" rx="10" fill="#171717" />
+      <path d="M12 13.5h6.5c2.9 0 5.1 1.1 6.7 3.2l2.3 3" fill="none" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M12 26.5h6.5c2.9 0 5.1-1.1 6.7-3.2l2.3-3" fill="none" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
+      <circle cx="11" cy="13.5" r="2.4" fill="#2DD4BF" />
+      <circle cx="11" cy="26.5" r="2.4" fill="#F59E0B" />
+      <circle cx="29" cy="20" r="3" fill="#FFFFFF" />
+      <path d="M29 15.5v9" stroke="#171717" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M24.5 20h9" stroke="#171717" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 

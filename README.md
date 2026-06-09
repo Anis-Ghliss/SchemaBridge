@@ -36,7 +36,7 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:v0.1.3
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.4
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
@@ -86,7 +86,7 @@ Open <http://localhost:4000>, create a binding, then send traffic to `http://loc
 
 Before pointing real traffic at the bridge:
 
-- [ ] **Pin the image** to a release tag (e.g. `:v0.1.3`), not `:latest`.
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.4`), not `:latest`.
 - [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
 - [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
 - [ ] Set a real Postgres password.

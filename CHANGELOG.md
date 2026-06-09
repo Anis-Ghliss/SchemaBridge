@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.4 — 2026-06-09
+
+### Changed
+- Added a dedicated SchemaBridge app icon and favicon.
+- Aligned the sidebar brand area with the top navigation bar.
+
 ## v0.1.3 — 2026-06-09
 
 ### Removed
