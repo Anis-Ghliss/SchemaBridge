@@ -1,0 +1,6 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/Anis-Ghliss/SchemaBridge#readme
+    about: Start with the README, getting started guide, concepts, and validation docs.
+
