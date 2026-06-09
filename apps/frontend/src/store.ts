@@ -23,7 +23,7 @@ import {
   updateSchema
 } from "./lib/api";
 
-export type ResourceView = "schemas" | "mappings" | "bindings" | "apps" | "live";
+export type ResourceView = "schemas" | "mappings" | "bindings" | "apps" | "live" | "drift";
 
 export interface AppDialog {
   readonly id: string;

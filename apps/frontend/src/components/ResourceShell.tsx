@@ -1,4 +1,4 @@
-import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldCheck } from "lucide-react";
+import { Activity, Layers3, GitBranch, Plug, Radio, PlayCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useAppStore, type ResourceView } from "../store";
 import { BindingsPage } from "../pages/BindingsPage";
@@ -11,6 +11,7 @@ const SchemasPage = lazy(() => import("../pages/SchemasPage").then((module) => (
 const MappingsPage = lazy(() => import("../pages/MappingsPage").then((module) => ({ default: module.MappingsPage })));
 const AppsPage = lazy(() => import("../pages/AppsPage").then((module) => ({ default: module.AppsPage })));
 const LivePage = lazy(() => import("../pages/LivePage").then((module) => ({ default: module.LivePage })));
+const DriftPage = lazy(() => import("../pages/DriftPage").then((module) => ({ default: module.DriftPage })));
 const QuickStartModal = lazy(() => import("./QuickStartModal").then((module) => ({ default: module.QuickStartModal })));
 const RevealKeyDialog = lazy(() => import("./RevealKeyDialog").then((module) => ({ default: module.RevealKeyDialog })));
 
@@ -25,8 +26,11 @@ const NAV: readonly NavItem[] = [
   { id: "mappings", label: "Mappings", icon: GitBranch },
   { id: "schemas", label: "Schemas", icon: Layers3 },
   { id: "apps", label: "Apps", icon: ShieldCheck },
-  { id: "live", label: "Live", icon: Radio }
+  { id: "live", label: "Live", icon: Radio },
+  { id: "drift", label: "Drift", icon: ShieldAlert }
 ];
+
+const COUNTLESS_VIEWS: ReadonlySet<ResourceView> = new Set(["live", "drift"]);
 
 export function ResourceShell() {
   const { view, setView, status, load, schemas, mappings, bindings, apps, quickStartOpen, openQuickStart, revealedKey } = useAppStore();
@@ -42,7 +46,8 @@ export function ResourceShell() {
     mappings: mappings.length,
     bindings: bindings.length,
     apps: apps.length,
-    live: 0
+    live: 0,
+    drift: 0
   };
 
   return (
@@ -73,7 +78,7 @@ export function ResourceShell() {
               >
                 <Icon className={cn("h-4 w-4", isActive ? "text-primary-foreground" : "text-slate-500")} />
                 <span className="flex-1 font-medium">{item.label}</span>
-                {item.id !== "live" && (
+                {!COUNTLESS_VIEWS.has(item.id) && (
                   <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-semibold", isActive ? "bg-white/20 text-primary-foreground" : "bg-muted text-slate-500")}>{count}</span>
                 )}
               </button>
@@ -108,6 +113,7 @@ export function ResourceShell() {
             {view === "bindings" && <BindingsPage />}
             {view === "apps" && <AppsPage />}
             {view === "live" && <LivePage />}
+            {view === "drift" && <DriftPage />}
           </Suspense>
         </main>
       </div>

@@ -3,6 +3,7 @@ import type {
   CreateProxyAppRequest,
   CreateProxyBindingRequest,
   CreateSchemaRequest,
+  DriftEvent,
   MappingDocument,
   ProxyApp,
   ProxyAppWithKey,
@@ -120,6 +121,22 @@ export async function listProxyRequests(options: { readonly limit?: number; read
   if (options.since) params.set("since", options.since);
   const suffix = params.toString();
   return request(`/proxy/requests${suffix ? `?${suffix}` : ""}`);
+}
+
+export async function listDriftEvents(options: { readonly bindingId?: string; readonly limit?: number } = {}): Promise<readonly DriftEvent[]> {
+  const params = new URLSearchParams();
+  if (options.bindingId) params.set("bindingId", options.bindingId);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  const suffix = params.toString();
+  return request(`/drift${suffix ? `?${suffix}` : ""}`);
+}
+
+export async function acknowledgeDriftEvent(id: string): Promise<void> {
+  await request<void>(`/drift/${id}`, { method: "DELETE" });
+}
+
+export async function clearDriftEvents(options: { readonly bindingId?: string } = {}): Promise<void> {
+  await request<void>(`/drift${options.bindingId ? `?bindingId=${options.bindingId}` : ""}`, { method: "DELETE" });
 }
 
 export interface ProxyProbeResult {
