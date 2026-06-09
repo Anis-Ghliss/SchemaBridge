@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.7 — 2026-06-09
 
 ### Added
 - **Contract drift detection.** The proxy now passively compares inbound, transformed, upstream, and response payloads against each binding's declared schemas and records divergences — *added* fields (an upstream introduced a key), *missing* fields, and *type changes* — aggregated per binding/stage/path with first/last-seen timestamps and a hit count. Detection is fire-and-forget (never adds latency or blocks traffic) and runs regardless of `validationMode`. Tune coverage with `DRIFT_SAMPLE_RATE`.
