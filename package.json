@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @schemabridge/shared-types && npm run build -w @schemabridge/schema-parser && npm run build -w @schemabridge/transformation-engine && npm run build -w @schemabridge/backend && npm run build -w @schemabridge/frontend",
+    "build": "npm run build -w @schemabridge/shared-types && npm run build -w @schemabridge/schema-parser && npm run build -w @schemabridge/transformation-engine && npm run build -w @schemabridge/backend && npm run build -w @schemabridge/control-plane && npm run build -w @schemabridge/frontend",
     "dev": "npm run dev -w @schemabridge/frontend",
     "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
     "test": "vitest run --coverage",

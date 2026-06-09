@@ -7,6 +7,7 @@
 - New admin endpoints: `GET /drift` (list, filter by `bindingId`), `DELETE /drift/:id` (acknowledge), `DELETE /drift` (clear).
 - New **Drift** view in the GUI: a filterable, auto-refreshing list of drift signals (by binding and kind) with per-row acknowledge and bulk clear, linking back to the originating binding.
 - **Control-plane reporting (hybrid topology).** When `CONTROL_PLANE_URL` is set, the data-plane instance periodically pushes a snapshot of its drift state to `<url>/ingest/drift` (authenticated with `CONTROL_PLANE_TOKEN`, identified by `BRIDGE_INSTANCE_ID`). Reporting is resilient — a control plane being unreachable never affects proxied traffic — and the proxy stays entirely in the customer's infra. Standalone/OSS deployments are unaffected unless they opt in. The `DriftReport` wire contract is defined in `@schemabridge/shared-types`.
+- **Control-plane service (`@schemabridge/control-plane`).** A new app that consumes the `DriftReport` contract: `POST /ingest/drift` (instance-token auth, snapshot reconciliation per instance) and `GET /fleet/drift` (tenant-key auth, fleet-wide query with instance/binding/kind filters). In-memory storage for now; Postgres persistence and the fleet dashboard UI + alerting are the next slices.
 
 ## v0.1.6 — 2026-06-09
 

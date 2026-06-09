@@ -10,7 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["packages/**/*.test.ts", "apps/backend/**/*.test.ts"],
+    include: ["packages/**/*.test.ts", "apps/backend/**/*.test.ts", "apps/control-plane/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["packages/transformation-engine/src/**/*.ts"],
