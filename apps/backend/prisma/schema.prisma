@@ -60,6 +60,25 @@ model ProxyBinding {
   mapping           Mapping  @relation("RequestMapping", fields: [mappingId], references: [id], onDelete: Restrict)
   responseMapping   Mapping? @relation("ResponseMapping", fields: [responseMappingId], references: [id], onDelete: SetNull)
   requests          ProxyRequestLog[]
+  driftEvents       DriftEvent[]
+}
+
+model DriftEvent {
+  id           String       @id @default(uuid())
+  bindingId    String
+  stage        String
+  kind         String
+  path         String
+  expectedType String?
+  observedType String?
+  count        Int          @default(1)
+  firstSeenAt  DateTime     @default(now())
+  lastSeenAt   DateTime     @default(now())
+  binding      ProxyBinding @relation(fields: [bindingId], references: [id], onDelete: Cascade)
+
+  @@unique([bindingId, stage, kind, path])
+  @@index([bindingId])
+  @@index([lastSeenAt])
 }
 
 model ProxyRequestLog {

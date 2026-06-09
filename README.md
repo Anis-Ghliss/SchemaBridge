@@ -88,6 +88,7 @@ New users should follow [Getting Started](docs/getting-started.md) for a blank-d
 | `PROXY_UPSTREAM_ALLOWLIST` | unset | Comma-separated `host` or `host:port` allowlist. When set, bindings/requests may only target these upstreams. |
 | `PROXY_LOG_BODIES` | `true` | When `false`, request/response bodies are not persisted to `ProxyRequestLog` (metadata only). Set `false` when traffic carries PII/secrets. |
 | `BRIDGE_ALLOW_INSECURE` | `false` | When `true`, allows the bridge to start in production even if `ADMIN_API_KEY`/`PROXY_REQUIRE_AUTH` are unset. Otherwise such a config is fatal in production. |
+| `DRIFT_SAMPLE_RATE` | `1` | Fraction (0–1) of proxied requests passively checked for contract drift against each binding's schemas. Set lower to reduce overhead on high-traffic bridges; `0` disables drift detection. |
 
 ### Production checklist
 

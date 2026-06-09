@@ -113,6 +113,40 @@ export const RestoreMappingVersionRequestSchema = z.object({
 });
 export type RestoreMappingVersionRequest = z.infer<typeof RestoreMappingVersionRequestSchema>;
 
+// Contract drift: how an observed payload diverges from a declared schema.
+// `added` = a field present in traffic but not in the contract (the canonical
+// upstream-drift signal); `missing` = a contracted field absent from traffic;
+// `type-changed` = a field whose JSON type no longer matches the contract.
+export const DriftKindSchema = z.enum(["added", "missing", "type-changed"]);
+export type DriftKind = z.infer<typeof DriftKindSchema>;
+
+export const DriftFindingSchema = z.object({
+  kind: DriftKindSchema,
+  path: z.string(),
+  expectedType: z.string().optional(),
+  observedType: z.string().optional()
+});
+export type DriftFinding = z.infer<typeof DriftFindingSchema>;
+
+// Which leg of the round-trip a drift finding was observed on.
+export const DriftStageSchema = z.enum(["request-source", "request-target", "response-source", "response-target"]);
+export type DriftStage = z.infer<typeof DriftStageSchema>;
+
+// A drift finding aggregated over time for one binding/stage/kind/path.
+export const DriftEventSchema = z.object({
+  id: z.string().uuid(),
+  bindingId: z.string().uuid(),
+  stage: DriftStageSchema,
+  kind: DriftKindSchema,
+  path: z.string(),
+  expectedType: z.string().nullable(),
+  observedType: z.string().nullable(),
+  count: z.number().int().positive(),
+  firstSeenAt: z.string().datetime(),
+  lastSeenAt: z.string().datetime()
+});
+export type DriftEvent = z.infer<typeof DriftEventSchema>;
+
 export const ProxyBindingMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "*"]);
 export type ProxyBindingMethod = z.infer<typeof ProxyBindingMethodSchema>;
 

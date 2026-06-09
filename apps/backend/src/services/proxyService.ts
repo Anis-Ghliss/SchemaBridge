@@ -1,5 +1,5 @@
-import type { JsonValue, MappingRule, ProxyBindingMethod } from "@schemabridge/shared-types";
-import { transformPayload, validateAgainstExample } from "@schemabridge/transformation-engine";
+import type { DriftStage, JsonValue, MappingRule, ProxyBindingMethod } from "@schemabridge/shared-types";
+import { diffShape, transformPayload, validateAgainstExample } from "@schemabridge/transformation-engine";
 import { match, type MatchFunction } from "path-to-regexp";
 import { request as undiciRequest, type Dispatcher } from "undici";
 import type { ActiveBinding, SchemaBridgeRepository } from "./repository.js";
@@ -47,12 +47,20 @@ const HOP_BY_HOP_HEADERS = new Set([
 export class ProxyService {
   private compiled: readonly CompiledBinding[] = [];
   private readonly egressPolicy: EgressPolicy;
+  private readonly driftSampleRate: number;
 
   public constructor(
     private readonly repository: SchemaBridgeRepository,
-    private readonly options: { readonly dispatcher?: Dispatcher; readonly upstreamTimeoutMs?: number; readonly egressPolicy?: EgressPolicy } = {}
+    private readonly options: {
+      readonly dispatcher?: Dispatcher;
+      readonly upstreamTimeoutMs?: number;
+      readonly egressPolicy?: EgressPolicy;
+      /** Fraction of requests passively checked for contract drift (0 disables). Default 1. */
+      readonly driftSampleRate?: number;
+    } = {}
   ) {
     this.egressPolicy = options.egressPolicy ?? defaultEgressPolicy();
+    this.driftSampleRate = clampRate(options.driftSampleRate ?? 1);
   }
 
   public async reload(): Promise<void> {
@@ -75,9 +83,34 @@ export class ProxyService {
     return null;
   }
 
+  private shouldSampleDrift(): boolean {
+    if (this.driftSampleRate <= 0) return false;
+    if (this.driftSampleRate >= 1) return true;
+    return Math.random() < this.driftSampleRate;
+  }
+
+  /**
+   * Fire-and-forget contract-drift observation. Never awaited and never throws
+   * into the request path, so it cannot add latency or fail a proxied request.
+   */
+  private observeDrift(sampled: boolean, bindingId: string, stage: DriftStage, observed: unknown, example: JsonValue | undefined): void {
+    if (!sampled || example === undefined) return;
+    const findings = diffShape(observed, example);
+    if (findings.length === 0) return;
+    void this.repository.recordDriftFindings(bindingId, stage, findings).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "unknown error";
+      console.warn(`[drift] failed to record drift for binding ${bindingId}: ${message}`);
+    });
+  }
+
   public async forward(active: ActiveBinding, req: ProxyRequest): Promise<ProxyResponse> {
     const { binding, requestRules, responseRules } = active;
     const validationErrors: string[] = [];
+    const driftSampled = this.shouldSampleDrift();
+
+    // Passive: observe inbound drift regardless of validationMode, even if strict
+    // validation rejects the request below.
+    this.observeDrift(driftSampled, binding.id, "request-source", req.body, active.requestSourceSchema);
 
     const requestSourceValidation = validatePayload("request-source", req.body, active.requestSourceSchema, binding.validationMode, validationErrors);
     if (!requestSourceValidation.ok) {
@@ -94,6 +127,8 @@ export class ProxyService {
         trace: { errors }
       };
     }
+
+    this.observeDrift(driftSampled, binding.id, "request-target", transformedBody.value, active.requestTargetSchema);
 
     const requestTargetValidation = validatePayload("request-target", transformedBody.value, active.requestTargetSchema, binding.validationMode, validationErrors);
     if (!requestTargetValidation.ok) {
@@ -149,6 +184,8 @@ export class ProxyService {
     if (responseRules.length > 0 && isJsonContentType(responseHeaders["content-type"])) {
       const parsed = safeJsonParse(upstreamBody);
       if (parsed.ok) {
+        // Upstream drift: the highest-value signal — an upstream changing its shape.
+        this.observeDrift(driftSampled, binding.id, "response-source", parsed.value, active.responseSourceSchema);
         if (active.responseSourceSchema !== undefined) {
           const responseSourceValidation = validatePayload("response-source", parsed.value, active.responseSourceSchema, binding.validationMode, validationErrors);
           if (!responseSourceValidation.ok) {
@@ -165,6 +202,7 @@ export class ProxyService {
             trace: { upstreamUrl, transformedRequest: transformedBody.value, errors }
           };
         }
+        this.observeDrift(driftSampled, binding.id, "response-target", transformedResponse.value, active.responseTargetSchema);
         if (active.responseTargetSchema !== undefined) {
           const responseTargetValidation = validatePayload("response-target", transformedResponse.value, active.responseTargetSchema, binding.validationMode, validationErrors);
           if (!responseTargetValidation.ok) {
@@ -187,6 +225,13 @@ export class ProxyService {
       trace: { upstreamUrl, transformedRequest: transformedBody.value, errors: validationErrors }
     };
   }
+}
+
+function clampRate(rate: number): number {
+  if (!Number.isFinite(rate)) return 1;
+  if (rate < 0) return 0;
+  if (rate > 1) return 1;
+  return rate;
 }
 
 function validatePayload(

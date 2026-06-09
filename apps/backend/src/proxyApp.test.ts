@@ -291,6 +291,73 @@ describe("proxy app", () => {
     expect(JSON.stringify(logs[0]?.responseBody ?? null)).not.toContain("ok");
   });
 
+  it("records contract drift when inbound traffic carries an unexpected field", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      validationMode: "off",
+      enabled: true
+    });
+
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { ok: true }, { headers: { "content-type": "application/json" } }).persist();
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent });
+    const send = () => app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com", loyaltyTier: "gold" }
+    });
+
+    await send();
+    await send();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const events = await prisma.driftEvent.findMany();
+    const added = events.find((event) => event.kind === "added" && event.path === "loyaltyTier");
+    expect(added).toBeDefined();
+    expect(added?.stage).toBe("request-source");
+    expect(added?.observedType).toBe("string");
+    expect(added?.count).toBe(2);
+  });
+
+  it("does not record drift when drift sampling is disabled", async () => {
+    const prisma = createMemoryPrisma();
+    seedRequestMapping(prisma);
+    prisma.seed.binding({
+      id: BINDING_ID,
+      name: "customers",
+      method: "POST",
+      pathPattern: "/customers",
+      upstreamBaseUrl: "http://service-b.local",
+      mappingId: MAPPING_REQUEST_ID,
+      responseMappingId: null,
+      forwardHeaders: ["content-type"],
+      enabled: true
+    });
+
+    agent.get("http://service-b.local").intercept({ path: "/customers", method: "POST" }).reply(201, { ok: true }, { headers: { "content-type": "application/json" } });
+
+    const { app } = await createProxyApp({ prisma: prisma as never, dispatcher: agent, driftSampleRate: 0 });
+    await app.inject({
+      method: "POST",
+      url: "/customers",
+      headers: { "content-type": "application/json" },
+      payload: { customerName: "Ada", customerEmail: "ada@example.com", extra: 1 }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(await prisma.driftEvent.findMany()).toHaveLength(0);
+  });
+
   it("applies response mapping when configured", async () => {
     const prisma = createMemoryPrisma();
     seedRequestMapping(prisma);

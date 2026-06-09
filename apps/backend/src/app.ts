@@ -248,7 +248,7 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
 
     const method = active.binding.method === "*" ? "POST" : active.binding.method;
     const path = concretizePath(active.binding.pathPattern);
-    const proxyService = new ProxyService(repository, { egressPolicy });
+    const proxyService = new ProxyService(repository, { egressPolicy, driftSampleRate: 0 });
     const startedAt = Date.now();
     const result = await proxyService.forward(active, {
       method,
@@ -312,6 +312,33 @@ export function registerAdminRoutes(app: FastifyInstance, repository: SchemaBrid
     return reply.code(204).send();
   });
 
+  app.get("/drift", async (request, reply) => {
+    const query = parseBody(
+      z.object({
+        bindingId: z.string().uuid().optional(),
+        limit: z.coerce.number().int().positive().max(500).optional()
+      }),
+      request.query
+    );
+    if (!query.success) return reply.code(400).send({ errors: query.error });
+    return repository.listDriftEvents({ bindingId: query.data.bindingId, limit: query.data.limit });
+  });
+
+  app.delete("/drift", async (request, reply) => {
+    const query = parseBody(z.object({ bindingId: z.string().uuid().optional() }), request.query);
+    if (!query.success) return reply.code(400).send({ errors: query.error });
+    const count = await repository.clearDriftEvents(query.data.bindingId);
+    return { cleared: count };
+  });
+
+  app.delete("/drift/:id", async (request, reply) => {
+    const params = parseBody(z.object({ id: z.string().uuid() }), request.params);
+    if (!params.success) return reply.code(400).send({ errors: params.error });
+    const deleted = await repository.deleteDriftEvent(params.data.id);
+    if (!deleted) return reply.code(404).send({ error: "Drift event not found" });
+    return reply.code(204).send();
+  });
+
   app.get("/proxy/requests", async (request, reply) => {
     const query = parseBody(
       z.object({
@@ -346,7 +373,7 @@ function concretizePath(pattern: string): string {
 
 // Every privileged API surface. Requests to these always require an admin token;
 // any future API route should be added here so it cannot be silently exposed.
-const PROTECTED_API_PREFIXES = ["/schemas", "/mappings", "/bindings", "/apps", "/proxy", "/transform"];
+const PROTECTED_API_PREFIXES = ["/schemas", "/mappings", "/bindings", "/apps", "/proxy", "/transform", "/drift"];
 
 function isPublicRoute(method: string, url: string): boolean {
   if (method === "OPTIONS") return true;

@@ -18,6 +18,7 @@ const proxyBodyLimitBytes = parsePositiveInteger(process.env.PROXY_BODY_LIMIT_BY
 const upstreamTimeoutMs = parsePositiveInteger(process.env.PROXY_UPSTREAM_TIMEOUT_MS, 30_000, "PROXY_UPSTREAM_TIMEOUT_MS");
 const trustProxy = (process.env.TRUST_PROXY ?? "false").toLowerCase() === "true";
 const captureBodies = (process.env.PROXY_LOG_BODIES ?? "true").toLowerCase() !== "false";
+const driftSampleRate = parseRate(process.env.DRIFT_SAMPLE_RATE, 1);
 const egressPolicy = buildEgressPolicy();
 const adminRateLimit = {
   max: parseNonNegativeInteger(process.env.ADMIN_RATE_LIMIT_MAX, 600, "ADMIN_RATE_LIMIT_MAX"),
@@ -55,7 +56,8 @@ const proxyBundle = await createProxyApp({
   rateLimit: proxyRateLimit.max > 0 ? proxyRateLimit : undefined,
   upstreamTimeoutMs,
   egressPolicy,
-  captureBodies
+  captureBodies,
+  driftSampleRate
 });
 const adminApp = createApp({
   prisma,
@@ -93,6 +95,16 @@ async function shutdown(signal: string): Promise<void> {
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+
+function parseRate(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    console.warn(`[bridge] ignoring invalid DRIFT_SAMPLE_RATE=${JSON.stringify(value)}; expected a number between 0 and 1`);
+    return fallback;
+  }
+  return parsed;
+}
 
 function buildEgressPolicy(): EgressPolicy {
   const base = defaultEgressPolicy();

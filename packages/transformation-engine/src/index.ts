@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, MappingRule, MappingRuleTransform, TransformResult } from "@schemabridge/shared-types";
+import type { DriftFinding, JsonObject, JsonValue, MappingRule, MappingRuleTransform, TransformResult } from "@schemabridge/shared-types";
 
 export interface TransformOptions {
   readonly includeMissingErrors?: boolean;
@@ -228,6 +228,84 @@ function visitExample(value: unknown, example: JsonValue, path: string, errors: 
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const MAX_DRIFT_DEPTH = 100;
+
+/**
+ * Structurally compare an observed payload against an example schema and return
+ * the ways it diverges. Unlike validateAgainstExample (which only flags missing
+ * and mistyped fields), this also surfaces *added* fields — the field that an
+ * upstream silently introduced — which is the primary contract-drift signal.
+ *
+ * Array element paths collapse to a `[]` wildcard and findings are de-duplicated,
+ * so drift is reported at contract granularity rather than per array index.
+ */
+export function diffShape(observed: unknown, example: JsonValue, basePath = ""): readonly DriftFinding[] {
+  const findings: DriftFinding[] = [];
+  walkDiff(observed, example, basePath, findings, 0);
+  return dedupeFindings(findings);
+}
+
+function walkDiff(observed: unknown, example: JsonValue, path: string, findings: DriftFinding[], depth: number): void {
+  if (depth >= MAX_DRIFT_DEPTH) return;
+  const here = path.length > 0 ? path : "$";
+
+  if (Array.isArray(example)) {
+    if (!Array.isArray(observed)) {
+      findings.push({ kind: "type-changed", path: here, expectedType: "array", observedType: shapeTypeOf(observed) });
+      return;
+    }
+    if (example.length === 0) return;
+    const itemExample = example[0] as JsonValue;
+    for (const item of observed) {
+      walkDiff(item, itemExample, `${path}[]`, findings, depth + 1);
+    }
+    return;
+  }
+
+  if (isRecord(example)) {
+    if (!isUnknownRecord(observed)) {
+      findings.push({ kind: "type-changed", path: here, expectedType: "object", observedType: shapeTypeOf(observed) });
+      return;
+    }
+    for (const [key, childExample] of Object.entries(example)) {
+      const childPath = joinPath(path, key);
+      if (!(key in observed)) {
+        findings.push({ kind: "missing", path: childPath, expectedType: shapeTypeOf(childExample) });
+      } else {
+        walkDiff(observed[key], childExample as JsonValue, childPath, findings, depth + 1);
+      }
+    }
+    for (const key of Object.keys(observed)) {
+      if (!(key in example)) {
+        findings.push({ kind: "added", path: joinPath(path, key), observedType: shapeTypeOf(observed[key]) });
+      }
+    }
+    return;
+  }
+
+  // example is a primitive (or null): only the leaf type matters.
+  const expectedType = shapeTypeOf(example);
+  const observedType = shapeTypeOf(observed);
+  if (observedType !== expectedType) {
+    findings.push({ kind: "type-changed", path: here, expectedType, observedType });
+  }
+}
+
+function shapeTypeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function dedupeFindings(findings: readonly DriftFinding[]): DriftFinding[] {
+  const seen = new Map<string, DriftFinding>();
+  for (const finding of findings) {
+    const key = `${finding.kind}|${finding.path}|${finding.expectedType ?? ""}|${finding.observedType ?? ""}`;
+    if (!seen.has(key)) seen.set(key, finding);
+  }
+  return [...seen.values()];
 }
 
 function joinPath(parent: string, key: string): string {

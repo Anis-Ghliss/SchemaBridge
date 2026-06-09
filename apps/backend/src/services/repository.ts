@@ -5,6 +5,9 @@ import type {
   CreateProxyAppRequest,
   CreateProxyBindingRequest,
   CreateSchemaRequest,
+  DriftEvent,
+  DriftFinding,
+  DriftStage,
   JsonValue,
   MappingDocument,
   MappingRule,
@@ -408,6 +411,51 @@ export class SchemaBridgeRepository {
     return records.map(toProxyRequestLog);
   }
 
+  public async recordDriftFindings(bindingId: string, stage: DriftStage, findings: readonly DriftFinding[]): Promise<void> {
+    const now = new Date();
+    for (const finding of findings) {
+      await this.prisma.driftEvent.upsert({
+        where: { bindingId_stage_kind_path: { bindingId, stage, kind: finding.kind, path: finding.path } },
+        create: {
+          bindingId,
+          stage,
+          kind: finding.kind,
+          path: finding.path,
+          expectedType: finding.expectedType ?? null,
+          observedType: finding.observedType ?? null
+        },
+        update: {
+          count: { increment: 1 },
+          lastSeenAt: now,
+          expectedType: finding.expectedType ?? null,
+          observedType: finding.observedType ?? null
+        }
+      });
+    }
+  }
+
+  public async listDriftEvents(options: { readonly bindingId?: string; readonly limit?: number } = {}): Promise<readonly DriftEvent[]> {
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+    const records = await this.prisma.driftEvent.findMany({
+      where: options.bindingId ? { bindingId: options.bindingId } : undefined,
+      orderBy: { lastSeenAt: "desc" },
+      take: limit
+    });
+    return records.map(toDriftEvent);
+  }
+
+  public async deleteDriftEvent(id: string): Promise<boolean> {
+    const existing = await this.prisma.driftEvent.findUnique({ where: { id } });
+    if (!existing) return false;
+    await this.prisma.driftEvent.delete({ where: { id } });
+    return true;
+  }
+
+  public async clearDriftEvents(bindingId?: string): Promise<number> {
+    const result = await this.prisma.driftEvent.deleteMany({ where: bindingId ? { bindingId } : undefined });
+    return result.count;
+  }
+
   public async listActiveBindings(): Promise<readonly ActiveBinding[]> {
     const records = await this.prisma.proxyBinding.findMany({
       where: { enabled: true },
@@ -440,6 +488,21 @@ function truncateJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.Jso
   const serialized = JSON.stringify(value);
   if (serialized.length <= MAX_LOGGED_BODY_BYTES) return value as Prisma.InputJsonValue;
   return { truncated: true, bytes: serialized.length, preview: serialized.slice(0, MAX_LOGGED_BODY_BYTES) };
+}
+
+function toDriftEvent(record: Prisma.DriftEventGetPayload<Record<string, never>>): DriftEvent {
+  return {
+    id: record.id,
+    bindingId: record.bindingId,
+    stage: record.stage as DriftStage,
+    kind: record.kind as DriftEvent["kind"],
+    path: record.path,
+    expectedType: record.expectedType,
+    observedType: record.observedType,
+    count: record.count,
+    firstSeenAt: record.firstSeenAt.toISOString(),
+    lastSeenAt: record.lastSeenAt.toISOString()
+  };
 }
 
 function toProxyRequestLog(record: ProxyRequestLogRecord): ProxyRequestLog {

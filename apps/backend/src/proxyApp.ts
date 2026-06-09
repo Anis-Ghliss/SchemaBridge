@@ -19,6 +19,8 @@ export interface ProxyAppOptions {
   readonly egressPolicy?: EgressPolicy;
   /** When false, request/response bodies are not persisted to the request log. Default true. */
   readonly captureBodies?: boolean;
+  /** Fraction of proxied requests passively checked for contract drift (0 disables). Default 1. */
+  readonly driftSampleRate?: number;
 }
 
 export interface ProxyAppBundle {
@@ -29,7 +31,7 @@ export interface ProxyAppBundle {
 export async function createProxyApp(options: ProxyAppOptions): Promise<ProxyAppBundle> {
   const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
   const repository = new SchemaBridgeRepository(options.prisma);
-  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher, upstreamTimeoutMs: options.upstreamTimeoutMs, egressPolicy: options.egressPolicy });
+  const proxyService = new ProxyService(repository, { dispatcher: options.dispatcher, upstreamTimeoutMs: options.upstreamTimeoutMs, egressPolicy: options.egressPolicy, driftSampleRate: options.driftSampleRate });
   const requireAuth = options.requireAuth ?? false;
   const captureBodies = options.captureBodies ?? true;
   const record = (input: Parameters<SchemaBridgeRepository["recordProxyRequest"]>[0]): void =>

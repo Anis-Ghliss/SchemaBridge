@@ -71,6 +71,19 @@ interface ProxyAppRow {
   updatedAt: Date;
 }
 
+interface DriftEventRow {
+  id: string;
+  bindingId: string;
+  stage: string;
+  kind: string;
+  path: string;
+  expectedType: string | null;
+  observedType: string | null;
+  count: number;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+}
+
 type WhereId = { where: { id: string } };
 
 export function createMemoryPrisma() {
@@ -80,6 +93,7 @@ export function createMemoryPrisma() {
   const bindings: BindingRow[] = [];
   const proxyLogs: ProxyRequestLogRow[] = [];
   const proxyApps: ProxyAppRow[] = [];
+  const driftEvents: DriftEventRow[] = [];
 
   function getMappingWithVersions(id: string) {
     const mapping = mappings.find((m) => m.id === id);
@@ -309,6 +323,60 @@ export function createMemoryPrisma() {
         const index = proxyApps.findIndex((row) => row.id === where.id);
         if (index < 0) throw new Error("not found");
         return proxyApps.splice(index, 1)[0];
+      }
+    },
+    driftEvent: {
+      async upsert({ where, create, update }: {
+        where: { bindingId_stage_kind_path: { bindingId: string; stage: string; kind: string; path: string } };
+        create: { bindingId: string; stage: string; kind: string; path: string; expectedType?: string | null; observedType?: string | null };
+        update: { count?: { increment: number }; lastSeenAt?: Date; expectedType?: string | null; observedType?: string | null };
+      }) {
+        const key = where.bindingId_stage_kind_path;
+        const existing = driftEvents.find((row) => row.bindingId === key.bindingId && row.stage === key.stage && row.kind === key.kind && row.path === key.path);
+        if (existing) {
+          if (update.count?.increment) existing.count += update.count.increment;
+          existing.lastSeenAt = update.lastSeenAt ?? new Date();
+          if (update.expectedType !== undefined) existing.expectedType = update.expectedType;
+          if (update.observedType !== undefined) existing.observedType = update.observedType;
+          return existing;
+        }
+        const now = new Date();
+        const row: DriftEventRow = {
+          id: randomUUID(),
+          bindingId: create.bindingId,
+          stage: create.stage,
+          kind: create.kind,
+          path: create.path,
+          expectedType: create.expectedType ?? null,
+          observedType: create.observedType ?? null,
+          count: 1,
+          firstSeenAt: now,
+          lastSeenAt: now
+        };
+        driftEvents.push(row);
+        return row;
+      },
+      async findMany({ where, take }: { where?: { bindingId?: string }; orderBy?: unknown; take?: number } = {}) {
+        let rows = [...driftEvents];
+        if (where?.bindingId !== undefined) rows = rows.filter((row) => row.bindingId === where.bindingId);
+        rows.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
+        if (typeof take === "number") rows = rows.slice(0, take);
+        return rows;
+      },
+      async findUnique({ where }: WhereId) {
+        return driftEvents.find((row) => row.id === where.id) ?? null;
+      },
+      async delete({ where }: WhereId) {
+        const index = driftEvents.findIndex((row) => row.id === where.id);
+        if (index < 0) throw new Error("not found");
+        return driftEvents.splice(index, 1)[0];
+      },
+      async deleteMany({ where }: { where?: { bindingId?: string } } = {}) {
+        const before = driftEvents.length;
+        for (let index = driftEvents.length - 1; index >= 0; index -= 1) {
+          if (!where?.bindingId || driftEvents[index]?.bindingId === where.bindingId) driftEvents.splice(index, 1);
+        }
+        return { count: before - driftEvents.length };
       }
     },
     seed: {

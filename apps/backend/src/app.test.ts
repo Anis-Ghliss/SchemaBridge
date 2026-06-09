@@ -478,6 +478,29 @@ describe("admin api", () => {
     expect(rotatedBody.key.startsWith("sb_")).toBe(true);
   });
 
+  it("lists and acknowledges drift events", async () => {
+    const app = createApp({ prisma: prisma as never });
+    const repository = new SchemaBridgeRepository(prisma as never);
+    const bindingId = "00000000-0000-4000-8000-0000000000d1";
+    await repository.recordDriftFindings(bindingId, "response-source", [
+      { kind: "added", path: "newField", observedType: "string" },
+      { kind: "missing", path: "legacyField", expectedType: "number" }
+    ]);
+
+    const listed = await app.inject({ method: "GET", url: "/drift" });
+    expect(listed.statusCode).toBe(200);
+    const events = listed.json() as Array<{ id: string; kind: string; path: string; stage: string; count: number }>;
+    expect(events).toHaveLength(2);
+    expect(events.every((event) => event.stage === "response-source")).toBe(true);
+
+    const filtered = await app.inject({ method: "GET", url: `/drift?bindingId=${bindingId}` });
+    expect((filtered.json() as unknown[]).length).toBe(2);
+
+    const acked = await app.inject({ method: "DELETE", url: `/drift/${events[0].id}` });
+    expect(acked.statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/drift" }).then((r) => r.json() as unknown[])).length).toBe(1);
+  });
+
   describe("with ADMIN_API_KEY set", () => {
     it("rejects API requests without a token", async () => {
       const app = createApp({ prisma: prisma as never, adminApiKey: "s3cret" });
