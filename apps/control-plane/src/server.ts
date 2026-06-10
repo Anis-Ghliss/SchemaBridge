@@ -1,6 +1,7 @@
 import { createControlPlaneApp } from "./app.js";
 import { InstanceRegistry, type InstanceRegistration, type TenantRegistration } from "./services/instanceRegistry.js";
-import { InMemoryDriftStore } from "./services/driftStore.js";
+import { InMemoryDriftStore, type DriftStore } from "./services/driftStore.js";
+import { FileDriftStore } from "./services/fileDriftStore.js";
 import { WebhookNotifier, type Notifier } from "./services/notifier.js";
 
 const port = Number(process.env.PORT ?? 5000);
@@ -18,13 +19,22 @@ const notifier: Notifier | undefined = alertWebhookUrl
   ? new WebhookNotifier(alertWebhookUrl, { token: process.env.CONTROL_PLANE_ALERT_TOKEN?.trim() || undefined })
   : undefined;
 
+const dataFile = process.env.CONTROL_PLANE_DATA_FILE?.trim();
+const store: DriftStore = dataFile ? new FileDriftStore(dataFile) : new InMemoryDriftStore();
+
 const app = createControlPlaneApp({
   registry: new InstanceRegistry(instances, tenants),
-  store: new InMemoryDriftStore(),
+  store,
   notifier,
   corsOrigin,
   bodyLimitBytes
 });
+
+if (dataFile) {
+  console.log(`[control-plane] persisting fleet drift to ${dataFile}`);
+} else {
+  console.warn("[control-plane] CONTROL_PLANE_DATA_FILE is unset; fleet drift is in-memory and lost on restart.");
+}
 
 if (!alertWebhookUrl) {
   console.warn("[control-plane] CONTROL_PLANE_ALERT_WEBHOOK_URL is unset; drift alerts are disabled.");

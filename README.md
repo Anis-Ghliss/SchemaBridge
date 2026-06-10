@@ -36,7 +36,7 @@ SchemaBridge ships as **one image**. Add it to your existing `docker-compose.yml
 ```yaml
 services:
   schemabridge:
-    image: ghcr.io/anis-ghliss/schemabridge:v0.1.7
+    image: ghcr.io/anis-ghliss/schemabridge:v0.1.8
     ports:
       - "8080:8080"   # runtime proxy — point your services here
       - "4000:4000"   # admin API + GUI
@@ -99,7 +99,7 @@ New users should follow [Getting Started](docs/getting-started.md) for a blank-d
 
 Before pointing real traffic at the bridge:
 
-- [ ] **Pin the image** to a release tag (e.g. `:v0.1.7`), not `:latest`.
+- [ ] **Pin the image** to a release tag (e.g. `:v0.1.8`), not `:latest`.
 - [ ] Set `ADMIN_API_KEY` to a long, random secret — anyone reaching `:4000` with this token can create/edit bindings.
 - [ ] Set `PROXY_REQUIRE_AUTH=true` and register one app per calling service in the **Apps** tab (Bearer key shown once on creation; rotate via the same tab).
 - [ ] Set a real Postgres password.
@@ -122,6 +122,21 @@ curl -X POST http://localhost:8080/customers \
 ```
 
 Disabled apps and out-of-scope routes return `403`; missing or unknown keys return `401`. Every proxied request is attributed to the app that authorized it in the Live traffic tab.
+
+## Contract drift & the control plane (preview)
+
+Every binding declares the payload shapes it expects. As traffic flows, the bridge passively compares each payload against those schemas and records **contract drift** — fields an upstream silently *added*, fields that went *missing*, or types that *changed* — in the **Drift** tab, without blocking traffic (tune `DRIFT_SAMPLE_RATE`). This catches breaking changes from upstreams before they reach your services.
+
+For a fleet of bridges, an optional **control plane** (`@schemabridge/control-plane`, separate image at `apps/control-plane/Dockerfile`) aggregates drift across instances and alerts on newly appeared drift. The data plane stays in your infra; only drift metadata is reported.
+
+| Variable | Side | Purpose |
+| --- | --- | --- |
+| `CONTROL_PLANE_URL` | data plane | When set, the bridge reports a drift snapshot to `<url>/ingest/drift`. Unset = standalone. |
+| `CONTROL_PLANE_TOKEN` | data plane | Bearer token identifying this instance. |
+| `BRIDGE_INSTANCE_ID` | data plane | Stable instance id in reports (default: hostname). |
+| `CONTROL_PLANE_DATA_FILE` | control plane | Path to persist fleet drift across restarts. Unset = in-memory (lost on restart). |
+| `CONTROL_PLANE_INSTANCES` / `CONTROL_PLANE_TENANTS` | control plane | JSON arrays registering instance tokens and tenant keys. |
+| `CONTROL_PLANE_ALERT_WEBHOOK_URL` | control plane | Slack-compatible webhook fired when a new drift path appears; `CONTROL_PLANE_ALERT_TOKEN` adds a bearer header. |
 
 ## Run Locally
 

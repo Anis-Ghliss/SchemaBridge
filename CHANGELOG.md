@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.1.8 — 2026-06-10
 
 ### Added
 - **Drift alerting on the control plane.** When a data-plane instance reports a contract-drift path it has not reported before, the control plane fires a notification. Configure with `CONTROL_PLANE_ALERT_WEBHOOK_URL` (Slack-compatible: the payload carries a `text` summary plus the structured `alert`); optional `CONTROL_PLANE_ALERT_TOKEN` adds a bearer header. Only *newly appeared* findings alert — re-reported drift is not repeated — and delivery is fire-and-forget so a slow or failing webhook never delays or fails ingest. The ingest response now includes an `alerts` count.
+- **Durable control-plane storage.** Set `CONTROL_PLANE_DATA_FILE` to persist fleet drift across restarts (atomic writes), so the "already seen" state that suppresses duplicate alerts survives a restart. Storage sits behind the `DriftStore` interface (shared snapshot-reconciliation logic, verified by a contract test against both the in-memory and file backends), keeping a future Postgres backend a drop-in swap.
+- **Control-plane image.** `apps/control-plane/Dockerfile` builds the control plane as a standalone deployable.
 
 ## v0.1.7 — 2026-06-09
 
