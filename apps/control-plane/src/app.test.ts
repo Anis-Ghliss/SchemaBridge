@@ -3,6 +3,7 @@ import type { DriftReport } from "@schemabridge/shared-types";
 import { createControlPlaneApp } from "./app";
 import { InstanceRegistry } from "./services/instanceRegistry";
 import { InMemoryDriftStore } from "./services/driftStore";
+import type { DriftAlert, Notifier } from "./services/notifier";
 
 const TENANT = "tenant-1";
 const INSTANCE = "bridge-a";
@@ -10,13 +11,22 @@ const INSTANCE_TOKEN = "cp_instance_token";
 const TENANT_KEY = "cp_tenant_key";
 const BINDING_ID = "00000000-0000-4000-8000-0000000000f1";
 
-function makeApp() {
+class RecordingNotifier implements Notifier {
+  public readonly alerts: DriftAlert[] = [];
+  public async notify(alert: DriftAlert): Promise<void> {
+    this.alerts.push(alert);
+  }
+}
+
+function makeApp(notifier?: Notifier) {
   const registry = new InstanceRegistry(
     [{ token: INSTANCE_TOKEN, instanceId: INSTANCE, tenantId: TENANT }],
     [{ key: TENANT_KEY, tenantId: TENANT }]
   );
-  return createControlPlaneApp({ registry, store: new InMemoryDriftStore() });
+  return createControlPlaneApp({ registry, store: new InMemoryDriftStore(), notifier });
 }
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function report(events: DriftReport["events"], instanceId = INSTANCE): DriftReport {
   return { instanceId, bridgeVersion: "0.1.6", reportedAt: "2026-06-09T12:00:00.000Z", events };
@@ -63,7 +73,7 @@ describe("control plane", () => {
       payload: report([driftEvent()])
     });
     expect(ingest.statusCode).toBe(200);
-    expect(ingest.json()).toEqual({ accepted: 1 });
+    expect(ingest.json()).toEqual({ accepted: 1, alerts: 1 });
 
     const fleet = await app.inject({ method: "GET", url: "/fleet/drift", headers: { authorization: `Bearer ${TENANT_KEY}` } });
     expect(fleet.statusCode).toBe(200);
@@ -110,5 +120,47 @@ describe("control plane", () => {
     const records = fleet.json() as Array<{ path: string; kind: string }>;
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ path: "b", kind: "missing" });
+  });
+
+  describe("alerting", () => {
+    const headers = { authorization: `Bearer ${INSTANCE_TOKEN}` };
+
+    it("alerts on newly appeared drift", async () => {
+      const notifier = new RecordingNotifier();
+      const alertApp = makeApp(notifier);
+      await alertApp.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent({ path: "newField" })]) });
+      await flush();
+
+      expect(notifier.alerts).toHaveLength(1);
+      expect(notifier.alerts[0]).toMatchObject({ tenantId: TENANT, instanceId: INSTANCE });
+      expect(notifier.alerts[0].newFindings.map((finding) => finding.path)).toEqual(["newField"]);
+    });
+
+    it("does not re-alert for drift already reported", async () => {
+      const notifier = new RecordingNotifier();
+      const alertApp = makeApp(notifier);
+      await alertApp.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent({ path: "stable" })]) });
+      await alertApp.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent({ path: "stable" })]) });
+      await flush();
+
+      expect(notifier.alerts).toHaveLength(1);
+    });
+
+    it("alerts only on the genuinely new path when a later report adds one", async () => {
+      const notifier = new RecordingNotifier();
+      const alertApp = makeApp(notifier);
+      await alertApp.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent({ path: "a" })]) });
+      await alertApp.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent({ path: "a" }), driftEvent({ path: "b" })]) });
+      await flush();
+
+      expect(notifier.alerts).toHaveLength(2);
+      expect(notifier.alerts[1].newFindings.map((finding) => finding.path)).toEqual(["b"]);
+    });
+
+    it("works without a notifier configured", async () => {
+      const response = await app.inject({ method: "POST", url: "/ingest/drift", headers, payload: report([driftEvent()]) });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ alerts: 1 });
+    });
   });
 });

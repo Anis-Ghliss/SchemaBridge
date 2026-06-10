@@ -23,9 +23,20 @@ export interface FleetDriftFilters {
   readonly limit?: number;
 }
 
+export interface RecordReportResult {
+  /** Number of drift findings in the snapshot. */
+  readonly accepted: number;
+  /** Findings present in this report that were not in the instance's prior snapshot — the alertable ones. */
+  readonly newFindings: readonly FleetDriftRecord[];
+}
+
 export interface DriftStore {
-  recordReport(tenantId: string, report: DriftReport): Promise<number>;
+  recordReport(tenantId: string, report: DriftReport): Promise<RecordReportResult>;
   listFleetDrift(tenantId: string, filters?: FleetDriftFilters): Promise<readonly FleetDriftRecord[]>;
+}
+
+function recordKey(record: Pick<FleetDriftRecord, "bindingId" | "stage" | "kind" | "path">): string {
+  return `${record.bindingId}|${record.stage}|${record.kind}|${record.path}`;
 }
 
 /**
@@ -37,10 +48,17 @@ export interface DriftStore {
 export class InMemoryDriftStore implements DriftStore {
   private records: FleetDriftRecord[] = [];
 
-  public async recordReport(tenantId: string, report: DriftReport): Promise<number> {
+  public async recordReport(tenantId: string, report: DriftReport): Promise<RecordReportResult> {
+    const priorKeys = new Set(
+      this.records
+        .filter((record) => record.tenantId === tenantId && record.instanceId === report.instanceId)
+        .map(recordKey)
+    );
     this.records = this.records.filter((record) => !(record.tenantId === tenantId && record.instanceId === report.instanceId));
+
+    const newFindings: FleetDriftRecord[] = [];
     for (const event of report.events) {
-      this.records.push({
+      const record: FleetDriftRecord = {
         tenantId,
         instanceId: report.instanceId,
         bridgeVersion: report.bridgeVersion,
@@ -54,9 +72,11 @@ export class InMemoryDriftStore implements DriftStore {
         firstSeenAt: event.firstSeenAt,
         lastSeenAt: event.lastSeenAt,
         reportedAt: report.reportedAt
-      });
+      };
+      this.records.push(record);
+      if (!priorKeys.has(recordKey(record))) newFindings.push(record);
     }
-    return report.events.length;
+    return { accepted: report.events.length, newFindings };
   }
 
   public async listFleetDrift(tenantId: string, filters: FleetDriftFilters = {}): Promise<readonly FleetDriftRecord[]> {

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Drift alerting on the control plane.** When a data-plane instance reports a contract-drift path it has not reported before, the control plane fires a notification. Configure with `CONTROL_PLANE_ALERT_WEBHOOK_URL` (Slack-compatible: the payload carries a `text` summary plus the structured `alert`); optional `CONTROL_PLANE_ALERT_TOKEN` adds a bearer header. Only *newly appeared* findings alert — re-reported drift is not repeated — and delivery is fire-and-forget so a slow or failing webhook never delays or fails ingest. The ingest response now includes an `alerts` count.
+
 ## v0.1.7 — 2026-06-09
 
 ### Added

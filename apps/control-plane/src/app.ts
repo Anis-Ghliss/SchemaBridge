@@ -4,17 +4,19 @@ import fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { InstanceRegistry } from "./services/instanceRegistry.js";
 import type { DriftStore } from "./services/driftStore.js";
+import type { Notifier } from "./services/notifier.js";
 
 export interface ControlPlaneOptions {
   readonly registry: InstanceRegistry;
   readonly store: DriftStore;
+  readonly notifier?: Notifier;
   readonly corsOrigin?: string;
   readonly bodyLimitBytes?: number;
 }
 
 export function createControlPlaneApp(options: ControlPlaneOptions): FastifyInstance {
   const app = fastify({ logger: true, bodyLimit: options.bodyLimitBytes });
-  const { registry, store } = options;
+  const { registry, store, notifier } = options;
 
   app.register(cors, { origin: options.corsOrigin ?? true });
 
@@ -33,8 +35,16 @@ export function createControlPlaneApp(options: ControlPlaneOptions): FastifyInst
       return reply.code(403).send({ error: "report instanceId does not match the authenticated instance" });
     }
 
-    const accepted = await store.recordReport(identity.tenantId, body.data);
-    return { accepted };
+    const { accepted, newFindings } = await store.recordReport(identity.tenantId, body.data);
+
+    // Fire-and-forget: a slow or failing alert sink must never delay or fail ingest.
+    if (notifier && newFindings.length > 0) {
+      void notifier
+        .notify({ tenantId: identity.tenantId, instanceId: body.data.instanceId, bridgeVersion: body.data.bridgeVersion, newFindings })
+        .catch((error: unknown) => app.log.warn(`alert delivery failed: ${error instanceof Error ? error.message : "unknown error"}`));
+    }
+
+    return { accepted, alerts: newFindings.length };
   });
 
   // Tenant fleet view. Authenticated with a tenant key.

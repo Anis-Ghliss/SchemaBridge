@@ -1,6 +1,7 @@
 import { createControlPlaneApp } from "./app.js";
 import { InstanceRegistry, type InstanceRegistration, type TenantRegistration } from "./services/instanceRegistry.js";
 import { InMemoryDriftStore } from "./services/driftStore.js";
+import { WebhookNotifier, type Notifier } from "./services/notifier.js";
 
 const port = Number(process.env.PORT ?? 5000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -12,12 +13,22 @@ const bodyLimitBytes = parsePositiveInteger(process.env.BODY_LIMIT_BYTES, 5_242_
 const instances = parseJsonArray<InstanceRegistration>(process.env.CONTROL_PLANE_INSTANCES, "CONTROL_PLANE_INSTANCES");
 const tenants = parseJsonArray<TenantRegistration>(process.env.CONTROL_PLANE_TENANTS, "CONTROL_PLANE_TENANTS");
 
+const alertWebhookUrl = process.env.CONTROL_PLANE_ALERT_WEBHOOK_URL?.trim();
+const notifier: Notifier | undefined = alertWebhookUrl
+  ? new WebhookNotifier(alertWebhookUrl, { token: process.env.CONTROL_PLANE_ALERT_TOKEN?.trim() || undefined })
+  : undefined;
+
 const app = createControlPlaneApp({
   registry: new InstanceRegistry(instances, tenants),
   store: new InMemoryDriftStore(),
+  notifier,
   corsOrigin,
   bodyLimitBytes
 });
+
+if (!alertWebhookUrl) {
+  console.warn("[control-plane] CONTROL_PLANE_ALERT_WEBHOOK_URL is unset; drift alerts are disabled.");
+}
 
 if (instances.length === 0) {
   console.warn("[control-plane] WARNING: no instances registered (CONTROL_PLANE_INSTANCES is empty); ingest will reject every report.");
