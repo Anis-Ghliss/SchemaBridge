@@ -10,7 +10,7 @@ export interface DriftReportTransport {
   send(report: DriftReport): Promise<void>;
 }
 
-/** Minimal surface of an AMQP confirm-channel we depend on (injected, not imported). */
+/** Minimal surface of an AMQP confirm-channel we depend on (injected, not imported, so amqplib stays optional). */
 export interface AmqpChannelLike {
   publish(exchange: string, routingKey: string, content: Buffer, options?: { persistent?: boolean; contentType?: string }): boolean;
   waitForConfirms(): Promise<void>;
