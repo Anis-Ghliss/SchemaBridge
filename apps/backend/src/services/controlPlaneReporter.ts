@@ -1,6 +1,7 @@
 import { request as undiciRequest, type Dispatcher } from "undici";
 import type { DriftReport } from "@schemabridge/shared-types";
 import type { SchemaBridgeRepository } from "./repository.js";
+import { DEFAULT_RETRY_POLICY, nextDelayMs, type RetryPolicy } from "./flushRetryPolicy.js";
 
 export interface ControlPlaneReporterOptions {
   /** Base URL of the control plane (e.g. https://app.schemabridge.io). */
@@ -16,6 +17,9 @@ export interface ControlPlaneReporterOptions {
   readonly dispatcher?: Dispatcher;
   /** Injectable clock for deterministic tests. */
   readonly now?: () => Date;
+  readonly retryPolicy?: RetryPolicy;
+  /** Injectable delay for deterministic tests. */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export type FlushResult = { readonly status: "sent"; readonly count: number } | { readonly status: "skipped" };
@@ -86,11 +90,21 @@ export class ControlPlaneReporter {
   }
 
   private async flushSafely(): Promise<void> {
-    try {
-      await this.flushOnce();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown error";
-      console.warn(`[control-plane] drift report failed: ${message}`);
+    const policy = this.options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+    for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+      try {
+        await this.flushOnce();
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        if (attempt === policy.maxAttempts) {
+          console.warn(`[control-plane] drift report failed after ${attempt} attempts: ${message}`);
+          return;
+        }
+        await sleep(nextDelayMs(policy, attempt));
+      }
     }
   }
 }
