@@ -1,6 +1,7 @@
 import { request as undiciRequest, type Dispatcher } from "undici";
 import type { DriftReport } from "@schemabridge/shared-types";
 import type { SchemaBridgeRepository } from "./repository.js";
+import type { DriftReportTransport } from "./rabbitmqDriftTransport.js";
 
 export interface ControlPlaneReporterOptions {
   /** Base URL of the control plane (e.g. https://app.schemabridge.io). */
@@ -16,6 +17,12 @@ export interface ControlPlaneReporterOptions {
   readonly dispatcher?: Dispatcher;
   /** Injectable clock for deterministic tests. */
   readonly now?: () => Date;
+  /**
+   * Overrides how reports leave the data plane. When set (e.g.
+   * RabbitMqDriftTransport), reports are handed to the transport instead of
+   * being POSTed to `url` directly.
+   */
+  readonly transport?: DriftReportTransport;
 }
 
 export type FlushResult = { readonly status: "sent"; readonly count: number } | { readonly status: "skipped" };
@@ -52,6 +59,11 @@ export class ControlPlaneReporter {
       reportedAt: this.now().toISOString(),
       events: [...events]
     };
+
+    if (this.options.transport) {
+      await this.options.transport.send(report);
+      return { status: "sent", count: events.length };
+    }
 
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (this.options.token) headers["authorization"] = `Bearer ${this.options.token}`;
